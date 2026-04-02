@@ -1,410 +1,261 @@
-# Smart Parking System
+# ParkSmart — Intelligent Parking Management System
 
-A full-stack IoT parking management platform built with the MERN stack and Arduino hardware integration. The system provides real-time parking spot monitoring via physical IR sensors, a booking and payment engine, Google Maps integration, OTP-based authentication, and a role-based admin dashboard — all connected through a RESTful API and a serial bridge that translates hardware sensor signals into live database updates.
+A full-stack smart parking platform that combines real-time IoT sensor data, geolocation, and integrated payment processing to streamline parking discovery, reservation, and management for both end-users and administrators.
 
 ---
 
 ## Table of Contents
 
-- [Architecture Overview](#architecture-overview)
+- [Overview](#overview)
 - [Tech Stack](#tech-stack)
+- [Architecture](#architecture)
 - [Features](#features)
-- [Project Structure](#project-structure)
+- [Data Models](#data-models)
 - [API Reference](#api-reference)
-- [Database Schema](#database-schema)
-- [Hardware Setup](#hardware-setup)
-- [Environment Variables](#environment-variables)
 - [Getting Started](#getting-started)
-- [Authentication Flow](#authentication-flow)
-- [Roles and Permissions](#roles-and-permissions)
-- [Status](#status)
+- [Environment Variables](#environment-variables)
+- [IoT Integration](#iot-integration)
+- [Known Limitations & Future Work](#known-limitations--future-work)
+- [Team](#team)
 
 ---
 
-## Architecture Overview
+## Overview
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                      CLIENT LAYER                       │
-│           React 18 + Vite + Tailwind (port 5173)        │
-│  Maps │ Reserve │ CheckIn/Out │ Payment │ Admin Panel   │
-└─────────────────────┬───────────────────────────────────┘
-                      │ HTTP / REST
-┌─────────────────────▼───────────────────────────────────┐
-│                      API LAYER                          │
-│              Node.js + Express (port 3000)              │
-│  auth │ parkingData │ reservationData │ payment │ admin │
-│            settings │ Passport.js session               │
-└──────┬──────────────┬────────────────────────────────────┘
-       │              │
-┌──────▼──────┐  ┌────▼──────────────────────────────────┐
-│  MongoDB    │  │           BRIDGE LAYER                 │
-│  (Mongoose) │  │    bridge.js — Arduino serial listener │
-└─────────────┘  │  Reads sensor state → updates DB       │
-                 └────────────────┬──────────────────────┘
-                                  │ USB Serial
-                 ┌────────────────▼──────────────────────┐
-                 │           HARDWARE LAYER               │
-                 │  Arduino Uno + IR Sensors              │
-                 │  Detects vehicle presence per spot     │
-                 └───────────────────────────────────────┘
+ParkSmart solves the problem of manual, inefficient parking management by providing:
 
-External Services:
-  - Google Maps JavaScript API  (Maps.jsx — live spot overlay)
-  - Payment Gateway             (Payment.jsx / PaymentSuccess.jsx)
-  - Nodemailer via mailSender   (OTP delivery, booking notifications)
-```
+- **Real-time availability** — Arduino sensors update spot occupancy directly through a Node.js serial bridge
+- **Reservation system** — users book spots in advance with time-conflict validation and payment-first enforcement
+- **Geolocation-aware discovery** — the map surface finds the nearest available spot using the user's live position and Google Maps Distance Matrix
+- **Admin control plane** — a dedicated dashboard for managing spots, monitoring reservations, and auditing payments
 
-The Arduino bridge (`bridge.js`) opens a serial connection to the Arduino, listens for occupancy signals, and writes the result directly to MongoDB. The frontend re-renders the map in real time without a full page refresh.
+The system enforces a payment-before-reservation model to eliminate abandoned bookings and handles sensor/user state conflicts with automatic refund logic.
 
 ---
 
 ## Tech Stack
 
-| Layer        | Technology                                    |
-|--------------|-----------------------------------------------|
-| Frontend     | React 18, Vite, React Router, Tailwind CSS    |
-| Backend      | Node.js, Express.js                           |
-| Database     | MongoDB, Mongoose ODM                         |
-| Auth         | JWT, bcrypt, Passport.js, OTP (email-based)   |
-| Hardware     | Arduino Uno, IR Sensor, SerialPort (Node.js)  |
-| Maps         | Google Maps JavaScript API                    |
-| Payments     | Payment gateway integration                   |
-| Email        | Nodemailer (`mailSender.js`)                  |
-| Dev Tools    | Nodemon, dotenv, cors                         |
+| Layer | Technology |
+|---|---|
+| Frontend | React 19, Vite 6, Tailwind CSS 3 |
+| Backend | Node.js, Express 4 |
+| Database | MongoDB Atlas (Mongoose ODM) |
+| Authentication | JWT, Google OAuth2 (Passport.js) |
+| Payments | Stripe (Payment Intents API) |
+| Maps | Google Maps JavaScript API, Distance Matrix API |
+| Email | Nodemailer + Gmail OAuth2 |
+| IoT Bridge | Node.js `serialport` → Arduino |
+| Real-time | Polling (10s intervals); socket.io installed but not yet active |
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Client Layer                         │
+│   React 19 SPA  │  Vite Dev Server (:5173)                  │
+│   Tailwind CSS  │  @react-google-maps  │  @stripe/react     │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ HTTP/REST (Axios)
+                           │ Bearer JWT in Authorization header
+┌──────────────────────────▼──────────────────────────────────┐
+│                        API Layer                            │
+│   Express 4  │  Port 3000  │  CORS: localhost:5173          │
+│                                                             │
+│   /api/auth      → Registration, Login, Google OAuth        │
+│   /api/parking   → Spots, Reservations, Check-in/out        │
+│   /api/payment   → Stripe intents, transaction records      │
+│   /api/user      → Reservation & payment history            │
+│   /api/admin     → Admin-only aggregated views              │
+│   /app/settings  → Vehicle management                       │
+└──────────┬──────────────────────────┬───────────────────────┘
+           │ Mongoose                 │ External APIs
+┌──────────▼──────────┐   ┌──────────▼──────────────────────┐
+│   MongoDB Atlas     │   │  Google OAuth2  │  Stripe API    │
+│                     │   │  Google Maps    │  Gmail SMTP    │
+│  Users   Cars       │   └─────────────────────────────────┘
+│  Spots   Reservations│
+│  Payments  OTPs     │   ┌─────────────────────────────────┐
+│  Check-ins/outs     │   │  IoT Bridge (bridge.js)         │
+│  Notifications      │   │  Arduino → COM5 (9600 baud)     │
+└─────────────────────┘   │  → POST /api/parking/update-status│
+                          └─────────────────────────────────┘
+```
+
+### Request Lifecycle
+
+1. Client sends request with `Authorization: Bearer <jwt>`
+2. `authenticate.js` middleware verifies token signature and extracts `{ id, email, role }`
+3. Route handler runs business logic, queries MongoDB via Mongoose
+4. Response returned as JSON
 
 ---
 
 ## Features
 
-**User-facing**
-- OTP-based email verification on sign-up
-- View a live Google Maps overlay of all parking spots with colour-coded availability
-- Reserve a parking spot for a specific time window
-- Check in and check out of a reserved spot
-- Pay for reservations through an integrated payment flow with a success confirmation screen
-- View full reservation and payment history
-- Update account settings
+### User-Facing
 
-**Admin**
-- Admin dashboard with system-wide overview
-- Manage parking spot data and availability
-- Monitor real-time sensor status per spot
-- Manage reservations across all users
+**Authentication**
+- Email/password signup with 6-digit OTP verification (TTL: 10 minutes)
+- Google OAuth2 single sign-on
+- JWT issued on login; stored in `localStorage`; sent as Bearer token on every request
 
-**Hardware / IoT**
-- IR sensors detect vehicle presence at the physical level
-- Arduino reads sensor state and transmits over USB serial at 9600 baud
-- `bridge.js` translates serial output into MongoDB writes
-- Spot availability reflects physical state within seconds of a change
+**Parking Discovery**
+- HTML5 Geolocation feeds live coordinates to the backend
+- Nearest available spot found via Euclidean distance on stored `lat/lng`
+- Nearby spots discovered via bounding-box range query (±0.009° ≈ 1 km)
+- Google Maps Distance Matrix calculates drive time to candidate spots
+- Map auto-refreshes every 10 seconds
+
+**Reservation**
+- Select a spot + time window (start/end); frontend validates: `start > now`, `start < end`
+- Backend checks for user-level and spot-level time overlaps before accepting
+- Payment must be completed (Stripe Payment Intent confirmed) before reservation is persisted
+
+**Check-in / Check-out**
+- Users check in on arrival; spot status transitions `reserved → checked-in`
+- Check-out transitions to `completed` and frees the spot
+- IoT sensor disagreements (sensor says occupied, no user checked-in) flag a violation
+
+**Payment**
+- Stripe Payment Intents flow: client requests intent → confirms on frontend → backend records transaction
+- Payment methods: credit card, debit card, PayPal, bank transfer
+- Full payment history per user
+
+**Vehicle Management**
+- Store multiple vehicles (make, model, color, license plate)
+- Mark a primary vehicle used by default on reservations
+
+### Admin
+
+- View all parking spots and live availability
+- Add / remove spots with coordinate input
+- Monitor all active and historical reservations
+- Audit all payment transactions across users
+- Dashboard auto-refreshes every 10 seconds
 
 ---
 
-## Project Structure
+## Data Models
 
+### User
 ```
-code-crafters/
-│
-├── frontend/
-│   ├── postcss.config.cjs
-│   ├── tailwind.config.js
-│   ├── vite.config.js
-│   └── src/
-│       ├── App.jsx
-│       ├── index.css
-│       ├── main.jsx
-│       ├── components/
-│       │   ├── BottomWarning.jsx
-│       │   ├── Button.jsx
-│       │   ├── DialogBox.jsx
-│       │   ├── heading.jsx
-│       │   ├── InputBox.jsx
-│       │   ├── Maps.jsx           # Google Maps spot overlay
-│       │   ├── Navbar.jsx
-│       │   ├── ProtectedRoute.jsx # Redirects unauthenticated users
-│       │   ├── PublicRoute.jsx    # Redirects authenticated users
-│       │   └── SubHeading.jsx
-│       ├── layouts/
-│       │   └── MainLayout.jsx
-│       └── pages/
-│           ├── AdminDashboard.jsx
-│           ├── CheckInOut.jsx
-│           ├── History.jsx
-│           ├── Home.jsx
-│           ├── Payment.jsx
-│           ├── PaymentSuccess.jsx
-│           ├── Reserve.jsx
-│           ├── Settings.jsx
-│           ├── SignIn.jsx
-│           └── SignUp.jsx
-│
-├── backend/
-│   ├── .env
-│   ├── bridge.js                  # Arduino serial listener
-│   ├── server.js
-│   ├── config/
-│   │   ├── db.js                  # MongoDB connection
-│   │   └── passport.js            # Passport.js strategy config
-│   ├── controllers/
-│   │   ├── authControllers.js
-│   │   └── otpControllers.js
-│   ├── middlewares/
-│   │   └── authenticate.js        # JWT verification middleware
-│   ├── models/
-│   │   ├── Car.js
-│   │   ├── notification.js
-│   │   ├── OtpModel.js
-│   │   ├── parking_db.js
-│   │   ├── payments.js
-│   │   └── User.js
-│   ├── routes/
-│   │   ├── admin.js
-│   │   ├── auth.js
-│   │   ├── parkingData.js
-│   │   ├── payment.js
-│   │   ├── reservationData.js
-│   │   └── settings.js
-│   └── utils/
-│       └── mailSender.js          # Nodemailer email helper
-│
-└── README.md
+name          String   required
+email         String   required, unique
+password      String   hashed (bcryptjs, 10 rounds)
+role          Enum     "user" | "admin"  (default: "user")
+provider      Enum     "local" | "google"
+phoneNumber   String   10-digit, required for local auth
+cars          [ObjectId → Car]
+createdAt     Date
+```
+
+### ParkingSpot
+```
+lotNumber     String   required
+spotNumber    String   required, unique
+isAvailable   Boolean  default: true
+reservedBy    ObjectId → User  (nullable)
+occupiedBy    ObjectId → User  (nullable)
+lat           Number   required
+lng           Number   required
+```
+
+### Reservation
+```
+userId        ObjectId → User    required
+spotId        ObjectId → Spot    required
+startTime     Date               required
+endTime       Date               required
+status        Enum               "reserved" | "checked-in" | "completed" | "cancelled"
+```
+
+### Payment
+```
+userId          ObjectId → User         required
+reservationId   ObjectId → Reservation  optional
+amount          Number                  required
+status          Enum                    "pending" | "completed" | "failed"
+paymentMethod   Enum                    "credit_card" | "debit_card" | "paypal" | "bank_transfer"
+transactionId   String                  unique
+timestamp       Date
+```
+
+### OTP
+```
+email       String   required
+otp         String   6-digit
+createdAt   Date     TTL index: expires after 10 minutes
+```
+
+### Car
+```
+userId          ObjectId → User
+carMake         String
+carModel        String
+carColor        String
+licensePlate    String   unique, uppercased
+isPrimary       Boolean
+registrationDate Date
 ```
 
 ---
 
 ## API Reference
 
-All protected routes require an `Authorization: Bearer <token>` header.
-
 ### Auth — `/api/auth`
 
-| Method | Endpoint              | Access  | Description                         |
-|--------|-----------------------|---------|-------------------------------------|
-| POST   | `/register`           | Public  | Register a new user account         |
-| POST   | `/send-otp`           | Public  | Send OTP to email for verification  |
-| POST   | `/verify-otp`         | Public  | Verify OTP and activate account     |
-| POST   | `/login`              | Public  | Login and receive JWT               |
-| GET    | `/profile`            | User    | Get current user profile            |
+| Method | Path | Description | Auth |
+|--------|------|-------------|------|
+| POST | `/signup` | Register with email, password, phone | No |
+| POST | `/verify-otp` | Verify signup OTP | No |
+| POST | `/login` | Email/password login, returns JWT | No |
+| POST | `/google` | Google OAuth token exchange, returns JWT | No |
 
-### Parking Data — `/api/parkingData`
+### Parking — `/api/parking`
 
-| Method | Endpoint        | Access  | Description                        |
-|--------|-----------------|---------|------------------------------------|
-| GET    | `/`             | Public  | Get all spots with current status  |
-| GET    | `/:id`          | Public  | Get a single spot by ID            |
-| POST   | `/`             | Admin   | Add a new parking spot             |
-| PUT    | `/:id`          | Admin   | Update spot details                |
-| DELETE | `/:id`          | Admin   | Remove a spot                      |
-| PATCH  | `/:id/status`   | Admin   | Manually override spot status      |
-
-### Reservation Data — `/api/reservationData`
-
-| Method | Endpoint        | Access  | Description                        |
-|--------|-----------------|---------|------------------------------------|
-| POST   | `/`             | User    | Create a new reservation           |
-| GET    | `/mine`         | User    | Get current user's reservations    |
-| GET    | `/:id`          | User    | Get a specific reservation         |
-| PUT    | `/:id/cancel`   | User    | Cancel a reservation               |
-| POST   | `/:id/checkin`  | User    | Check in to a reserved spot        |
-| POST   | `/:id/checkout` | User    | Check out of a spot                |
-| GET    | `/all`          | Admin   | Get all reservations               |
+| Method | Path | Description | Auth |
+|--------|------|-------------|------|
+| GET | `/spots` | List all parking spots | Yes |
+| GET | `/nearest` | Nearest available spot by lat/lng | Yes |
+| GET | `/nearby` | Spots within radius | Yes |
+| POST | `/reserve` | Create reservation (payment required first) | Yes |
+| POST | `/checkin` | Check in to reserved spot | Yes |
+| POST | `/checkout` | Check out of spot | Yes |
+| POST | `/update-status` | IoT sensor status update | Internal |
+| POST | `/add-spot` | Add new spot | Admin |
+| DELETE | `/delete-spot/:id` | Remove spot | Admin |
 
 ### Payment — `/api/payment`
 
-| Method | Endpoint            | Access  | Description                        |
-|--------|---------------------|---------|------------------------------------|
-| POST   | `/checkout`         | User    | Initiate payment for a reservation |
-| GET    | `/:reservationId`   | User    | Get payment status                 |
+| Method | Path | Description | Auth |
+|--------|------|-------------|------|
+| POST | `/create-intent` | Create Stripe Payment Intent | Yes |
+| POST | `/confirm` | Record confirmed payment | Yes |
 
-### Settings — `/api/settings`
+### User — `/api/user`
 
-| Method | Endpoint        | Access  | Description                        |
-|--------|-----------------|---------|------------------------------------|
-| GET    | `/`             | User    | Get user settings                  |
-| PUT    | `/`             | User    | Update user settings               |
+| Method | Path | Description | Auth |
+|--------|------|-------------|------|
+| GET | `/reservations` | Current user's reservation history | Yes |
+| GET | `/payments` | Current user's payment history | Yes |
 
 ### Admin — `/api/admin`
 
-| Method | Endpoint        | Access  | Description                        |
-|--------|-----------------|---------|------------------------------------|
-| GET    | `/users`        | Admin   | Get all registered users           |
-| DELETE | `/users/:id`    | Admin   | Delete a user account              |
-| GET    | `/stats`        | Admin   | Get system-wide usage stats        |
+| Method | Path | Description | Auth (Admin) |
+|--------|------|-------------|------|
+| GET | `/reservations` | All reservations | Yes |
+| GET | `/payments` | All payment records | Yes |
 
----
+### Settings — `/app/settings`
 
-## Database Schema
-
-### User — `User.js`
-```js
-{
-  name:      String,   // required
-  email:     String,   // required, unique
-  password:  String,   // hashed with bcrypt
-  role:      String,   // "user" | "admin"  (default: "user")
-  isVerified: Boolean, // set to true after OTP verification
-  createdAt: Date
-}
-```
-
-### OtpModel — `OtpModel.js`
-```js
-{
-  email:     String,   // linked to user email
-  otp:       String,   // hashed OTP code
-  createdAt: Date,     // TTL index — expires after set duration
-}
-```
-
-### ParkingSpot — `parking_db.js`
-```js
-{
-  spotNumber:   String,   // e.g. "A1", "B3"
-  location:     String,   // human-readable label
-  coordinates: {
-    lat: Number,
-    lng: Number
-  },
-  status:       String,   // "available" | "occupied" | "reserved"
-  sensorId:     String,   // maps to Arduino sensor ID
-  pricePerHour: Number,
-  updatedAt:    Date
-}
-```
-
-### Car — `Car.js`
-```js
-{
-  user:         ObjectId,  // ref: User
-  licensePlate: String,    // required
-  make:         String,
-  model:        String,
-  color:        String
-}
-```
-
-### Payment — `payments.js`
-```js
-{
-  reservation:   ObjectId,  // ref: Reservation
-  user:          ObjectId,  // ref: User
-  amount:        Number,
-  status:        String,    // "pending" | "paid" | "refunded"
-  transactionId: String,
-  createdAt:     Date
-}
-```
-
-### Notification — `notification.js`
-```js
-{
-  user:      ObjectId,  // ref: User
-  message:   String,
-  read:      Boolean,   // default: false
-  createdAt: Date
-}
-```
-
----
-
-## Hardware Setup
-
-### Components
-
-- Arduino Uno
-- IR sensor module (one per parking spot)
-- USB cable
-- Breadboard and jumper wires
-
-### Wiring (per sensor)
-
-```
-IR Sensor VCC  →  Arduino 5V
-IR Sensor GND  →  Arduino GND
-IR Sensor OUT  →  Arduino Digital Pin 2
-```
-
-### Arduino Sketch
-
-The sketch reads the sensor state, debounces the signal (50ms), and writes `occupied` or `available` to the serial port at 9600 baud.
-
-```cpp
-const int IR_SENSOR_PIN = 2;
-
-void setup() {
-  Serial.begin(9600);
-  pinMode(IR_SENSOR_PIN, INPUT);
-}
-
-void loop() {
-  int state = digitalRead(IR_SENSOR_PIN);
-  if (state == HIGH) {
-    Serial.println("occupied");
-  } else {
-    Serial.println("available");
-  }
-  delay(100);
-}
-```
-
-### Uploading the Sketch
-
-1. Open Arduino IDE
-2. Go to File → Open → `arduino/parking_sensor.ino`
-3. Select board: Tools → Board → Arduino Uno
-4. Select port: Tools → Port → (your COM port)
-5. Click Upload
-
-### Serial Bridge
-
-`bridge.js` opens the serial port, reads incoming lines, and writes the occupancy status to the corresponding `ParkingSpot` document in MongoDB:
-
-```bash
-node bridge.js
-```
-
-Update `ARDUINO_PORT` in your `.env` to match your system:
-
-| OS      | Format                    |
-|---------|---------------------------|
-| Windows | `COM3`, `COM5`, etc.      |
-| macOS   | `/dev/cu.usbmodem14201`   |
-| Linux   | `/dev/ttyUSB0`            |
-
----
-
-## Environment Variables
-
-### `backend/.env`
-
-```env
-PORT=3000
-MONGO_URI=mongodb://localhost:27017/smart-parking
-JWT_SECRET=your_jwt_secret_here
-JWT_EXPIRES_IN=7d
-
-ARDUINO_PORT=COM5
-
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=your_email@gmail.com
-SMTP_PASS=your_app_password
-EMAIL_FROM=noreply@smartparking.com
-
-PAYMENT_API_KEY=your_payment_key_here
-PAYMENT_API_SECRET=your_payment_secret_here
-
-GOOGLE_MAPS_API_KEY=your_google_maps_key_here
-
-SESSION_SECRET=your_session_secret_here
-```
-
-### `frontend/.env`
-
-```env
-VITE_API_URL=http://localhost:3000
-VITE_GOOGLE_MAPS_API_KEY=your_google_maps_key_here
-```
+| Method | Path | Description | Auth |
+|--------|------|-------------|------|
+| GET | `/cars` | List user's vehicles | Yes |
+| POST | `/cars` | Add vehicle | Yes |
+| DELETE | `/cars/:id` | Remove vehicle | Yes |
+| PATCH | `/cars/:id/primary` | Set primary vehicle | Yes |
 
 ---
 
@@ -412,100 +263,122 @@ VITE_GOOGLE_MAPS_API_KEY=your_google_maps_key_here
 
 ### Prerequisites
 
-- Node.js v18+
-- MongoDB running locally or a MongoDB Atlas URI
-- Arduino IDE (only needed for hardware integration)
+- Node.js 18+
+- A MongoDB Atlas cluster
+- Google Cloud project with OAuth2 and Maps API enabled
+- Stripe test account
+- Gmail account with OAuth2 credentials (for OTP emails)
 
-### 1. Clone the repository
+### 1. Clone
 
 ```bash
-git clone https://sc-gitlab.ufv.ca/Amrita.Sood/code-crafters.git
+git clone <repo-url>
 cd code-crafters
 ```
 
-### 2. Install dependencies
+### 2. Backend
 
 ```bash
-# Backend
-cd backend && npm install
-
-# Frontend
-cd ../frontend && npm install
+cd backend
+npm install
+cp .env.example .env   # fill in all values (see Environment Variables)
+node server.js
+# API available at http://localhost:3000
 ```
 
-### 3. Configure environment variables
-
-Create `.env` files in both `backend/` and `frontend/` using the templates in the [Environment Variables](#environment-variables) section above.
-
-### 4. Start the application
+### 3. Frontend
 
 ```bash
-# Terminal 1 — Backend API
-cd backend && npm run dev
-
-# Terminal 2 — Frontend
-cd frontend && npm run dev
-
-# Terminal 3 — Arduino bridge (only with hardware)
-cd backend && node bridge.js
+cd frontend
+npm install
+cp .env.example .env   # fill in Vite variables
+npm run dev
+# App available at http://localhost:5173
 ```
 
-Frontend: `http://localhost:5173`
-Backend API: `http://localhost:3000`
+### 4. IoT Bridge (optional)
 
-### 5. Verify the backend
+Connect the Arduino and update the COM port in `bridge.js` if needed.
 
 ```bash
-curl http://localhost:3000/health
-# → { "status": "ok" }
+cd backend
+node bridge.js
+```
 
-curl http://localhost:3000/api/parkingData
-# → [ array of parking spot documents ]
+### Frontend Scripts
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start Vite dev server with HMR |
+| `npm run build` | Production bundle to `dist/` |
+| `npm run preview` | Serve production build locally |
+| `npm run lint` | Run ESLint |
+
+---
+
+## Environment Variables
+
+### Backend (`backend/.env`)
+
+```env
+MONGODB_URL=mongodb+srv://<user>:<password>@cluster0.xxxxx.mongodb.net/CodeCrafters
+JWT_SECRET=<your-jwt-secret>
+PORT=3000
+
+GOOGLE_CLIENT_ID=<google-oauth-client-id>
+GOOGLE_CLIENT_SECRET=<google-oauth-client-secret>
+REFRESH_TOKEN=<gmail-oauth2-refresh-token>
+REDIRECT_URL=http://localhost:3000/auth/google/callback
+GMAIL_USER=<your-gmail-address>
+
+MAPS_API=<google-maps-server-api-key>
+STRIPE_SECRET_KEY=sk_test_<your-stripe-secret>
+```
+
+### Frontend (`frontend/.env`)
+
+```env
+VITE_GOOGLE_CLIENT_ID=<google-oauth-client-id>
+VITE_MAPS_API=<google-maps-browser-api-key>
+VITE_STRIPE_PUBLIC_KEY=pk_test_<your-stripe-publishable-key>
 ```
 
 ---
 
-## Authentication Flow
+## IoT Integration
 
-1. User submits email and password on `/signup`
-2. `POST /api/auth/send-otp` — server generates an OTP, hashes it, stores it in `OtpModel`, and sends it to the user's email via `mailSender.js`
-3. User submits the OTP on the verification screen
-4. `POST /api/auth/verify-otp` — server validates the OTP, sets `isVerified: true` on the user, and returns a signed JWT
-5. Client stores the JWT and attaches it as a `Bearer` token on all subsequent requests
-6. `authenticate.js` middleware verifies the token signature and expiry on every protected route
-7. Admin routes additionally check `user.role === "admin"`
-8. Passport.js handles session-based auth where applicable
+The `backend/bridge.js` script acts as a hardware bridge between an Arduino sensor array and the backend API.
 
----
+```
+Arduino (Serial, 9600 baud)
+  │  "occupied" | "available"
+  ▼
+bridge.js (Node.js serialport)
+  │  POST /api/parking/update-status
+  │  { spotId, status }
+  ▼
+Express Route → MongoDB (isAvailable updated)
+```
 
-## Roles and Permissions
+**Conflict resolution logic:**
+- Sensor reports `occupied` but no user has checked in → reservation flagged as violated
+- Sensor reports `available` but user is checked in → unused time refunded to user wallet
 
-| Action                          | User | Admin |
-|---------------------------------|------|-------|
-| View spot availability          | ✅   | ✅    |
-| Reserve a spot                  | ✅   | ✅    |
-| Check in / check out            | ✅   | ✅    |
-| Cancel own reservation          | ✅   | ✅    |
-| View own reservation history    | ✅   | ✅    |
-| Make a payment                  | ✅   | ✅    |
-| Update account settings         | ✅   | ✅    |
-| View all reservations           | ❌   | ✅    |
-| Create / edit / delete spots    | ❌   | ✅    |
-| Manually override spot status   | ❌   | ✅    |
-| Manage user accounts            | ❌   | ✅    |
-| View system stats               | ❌   | ✅    |
+The COM port and baud rate are configurable constants in `bridge.js`.
 
 ---
 
-## Status
+## Known Limitations & Future Work
 
-Active development. Not yet deployed. Live demo link will be added here once available.
+| Area | Current State | Improvement |
+|------|--------------|-------------|
+| Real-time updates | 10-second polling | Replace with WebSocket (socket.io already installed) |
+| API base URL | Hardcoded `localhost:3000` in frontend | Move to `VITE_API_URL` env variable |
+| CORS | Hardcoded `localhost:5173` | Drive from environment config |
+| Testing | No test suite | Add Jest (unit) + Supertest (integration) |
+| Deployment | Local-only | Add Dockerfile + docker-compose; CI/CD via GitHub Actions |
+| IoT port | Hardcoded `COM5` | Read from environment variable |
+| Rate limiting | None | Add `express-rate-limit` on auth and payment routes |
+| Monitoring | None | Integrate logging (Winston/Pino) + error tracking |
 
 ---
-
-## Author
-
-**Amrita Sood**
-Bachelor of Computer Information Systems — University of the Fraser Valley (Graduating May 2026)
-
-[LinkedIn](https://www.linkedin.com/in/amrita-sood) · [GitLab](https://sc-gitlab.ufv.ca/Amrita.Sood)
