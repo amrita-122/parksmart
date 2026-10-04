@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const { Reservation, ParkingSpot } = require("../models/parking_db");
 const authenticate = require("../middlewares/authenticate");
+const { ownsReservation } = require("../middlewares/authorize");
 const { Payment } = require("../models/payments");
 const User = require("../models/User");
 
@@ -31,33 +32,22 @@ router.get("/wallet", authenticate, async (req, res) => {
   }
 });
 
-// Reserve a parking spot
-router.post("/reserve", async (req, res) => {
-  try {
-    const { userId, spotId, startTime, endTime } = req.body;
-
-    const spot = await ParkingSpot.findById(spotId);
-    if (!spot || !spot.isAvailable) {
-      return res.status(400).json({ error: "Spot not available" });
-    }
-
-    const reservation = new Reservation({ userId, spotId, startTime, endTime });
-    await reservation.save();
-
-    await ParkingSpot.findByIdAndUpdate(spotId, { isAvailable: false, reservedBy: userId });
-
-    res.status(201).json({ message: "Reservation successful", reservation });
-  } catch (error) {
-    res.status(500).json({ error: "Internal Server Error" });
-  }
-});
+// Reserving lives in POST /api/parking/reserve (authenticated, payment-checked).
+// The old unauthenticated POST /api/user/reserve took a userId from the body and
+// skipped the payment check, so it was removed.
 
 // Cancel reservation
-router.delete("/cancel/:id", async (req, res) => {
+router.delete("/cancel/:id", authenticate, async (req, res) => {
   try {
     const reservation = await Reservation.findById(req.params.id);
     if (!reservation) {
       return res.status(404).json({ error: "Reservation not found" });
+    }
+    if (!ownsReservation(reservation, req.user)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    if (reservation.status !== "reserved") {
+      return res.status(400).json({ error: "Only a reservation that has not been checked in can be cancelled" });
     }
 
     await ParkingSpot.findByIdAndUpdate(reservation.spotId, { isAvailable: true, reservedBy: null });
@@ -77,6 +67,9 @@ router.post("/checkout-credit", authenticate, async (req, res) => {
 
     if (!reservation || reservation.status !== "checked-in") {
       return res.status(400).json({ message: "Invalid reservation!" });
+    }
+    if (!ownsReservation(reservation, req.user)) {
+      return res.status(403).json({ message: "Forbidden" });
     }
 
     const now = new Date();

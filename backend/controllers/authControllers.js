@@ -1,7 +1,7 @@
 const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const OTP = require('../models/OtpModel');
-const jwt = require('jsonwebtoken'); // Import JWT
+const { signToken } = require('../utils/token');
 
 exports.signup = async (req, res) => {
     try{
@@ -25,7 +25,7 @@ exports.signup = async (req, res) => {
         const hashedPass = await bcrypt.hash(password,10)
         const user1 = new User({name:name,email:email,phoneNumber:phoneNumber,password:hashedPass})
         await user1.save();
-        const token = jwt.sign({ id: user1._id }, process.env.JWT_SECRET, { expiresIn: "1h" });
+        const token = signToken({ id: user1._id, email: user1.email, role: user1.role });
         res.status(201).json({ message: "User Created Successfully!", token });
         console.log("User created")
 }catch(error){
@@ -43,17 +43,17 @@ exports.login = async (req,res)=>{
        $or: [{ email: emailorPhone }, { phoneNumber: emailorPhone }],
      });
  
-     if (!user){
-         return res.status(404).json({message : 'User not  FOund'})
-     }
- 
-     const isMatch = await bcrypt.compare(password,user.password)
- 
+     // Same answer for "no such user", "Google-only account" and "wrong password"
+     // so the endpoint can't be used to find out which emails are registered.
+     const isMatch = user && user.password
+       ? await bcrypt.compare(password, user.password)
+       : false;
+
      if (!isMatch){
-         return res.status(404).json({message : 'Wrong password'})
+         return res.status(401).json({message : 'Invalid credentials'})
      }
- 
-     const token = jwt.sign({id:user._id, email:user.email, role: user.role},process.env.JWT_SECRET)
+
+     const token = signToken({id:user._id, email:user.email, role: user.role})
      res.status(200).json({ message: "Login Successful!", token });
  
  } catch (error) {

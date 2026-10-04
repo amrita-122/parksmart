@@ -1,7 +1,7 @@
 require('dotenv').config()
 const passport = require('passport')
 const GoogleStrategy= require('passport-google-oauth20').Strategy;
-const jwt = require('jsonwebtoken');
+const { signToken } = require('../utils/token');
 const User = require('../models/User');
 
 
@@ -28,9 +28,8 @@ passport.use(
             await user.save();
         }
 
-        const token = jwt.sign(
-            { id: user._id, email: user.email, role: user.role },
-            process.env.JWT_SECRET,
+        const token = signToken(
+            { id: user._id, email: user.email, role: user.role }
           );
 
           return done(null, { ...user.toObject(), token });

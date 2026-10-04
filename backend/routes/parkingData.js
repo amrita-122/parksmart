@@ -2,14 +2,18 @@ const express = require("express");
 const { ParkingSpot, Reservation } = require("../models/parking_db");
 const router = express.Router();
 const authenticate = require("../middlewares/authenticate");
+const { requireAdmin, requireDeviceKey, ownsReservation } = require("../middlewares/authorize");
 const { Payment } = require("../models/payments");
 const { getIO } = require("../socket");
 
-router.post("/add", async (req, res) => {
+router.post("/add", authenticate, requireAdmin, async (req, res) => {
   try {
     const { lotNumber, spotNumber, lat, lng } = req.body;
     if (!lotNumber || !spotNumber || !lat || !lng) {
       return res.status(400).json({ message: "All fields are required" });
+    }
+    if (!Number.isFinite(parseFloat(lat)) || !Number.isFinite(parseFloat(lng))) {
+      return res.status(400).json({ message: "lat and lng must be numbers" });
     }
 
     const existingSpot = await ParkingSpot.findOne({ spotNumber });
@@ -32,9 +36,10 @@ router.post("/add", async (req, res) => {
   }
 });
 
-router.delete("/delete/:id", async (req, res) => {
+router.delete("/delete/:id", authenticate, requireAdmin, async (req, res) => {
   try {
-    await ParkingSpot.findByIdAndDelete(req.params.id);
+    const deleted = await ParkingSpot.findByIdAndDelete(req.params.id);
+    if (!deleted) return res.status(404).json({ message: "Spot not found" });
     res.json({ message: "Spot deleted" });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -65,13 +70,25 @@ router.post("/reserve", authenticate, async (req, res) => {
       return res.status(400).json({ message: "Reservation must be within 20 minutes from now." });
     }
 
-    const hasPaid = await Payment.findOne({ userId, amount: { $gt: 0 }, status: "completed" }).sort({ timestamp: -1 });
-    if (!hasPaid) {
+    // One payment pays for one reservation: claim an unused completed payment
+    // (reservationId still null) instead of accepting any payment ever made.
+    const reservation = new Reservation({ userId, spotId, startTime, endTime, status: "reserved" });
+    const payment = await Payment.findOneAndUpdate(
+      { userId, amount: { $gt: 0 }, status: "completed", reservationId: null },
+      { reservationId: reservation._id },
+      { sort: { timestamp: 1 } }
+    );
+    if (!payment) {
       return res.status(403).json({ message: "Please complete a payment before reserving." });
     }
 
-    const reservation = new Reservation({ userId, spotId, startTime, endTime, status: "reserved" });
-    await reservation.save();
+    try {
+      await reservation.save();
+    } catch (saveError) {
+      // Give the payment back so the user can retry.
+      await Payment.findByIdAndUpdate(payment._id, { reservationId: null });
+      throw saveError;
+    }
 
     const updatedSpot = await ParkingSpot.findByIdAndUpdate(
       spotId,
@@ -87,13 +104,16 @@ router.post("/reserve", authenticate, async (req, res) => {
   }
 });
 
-router.post("/checkin", async (req, res) => {
+router.post("/checkin", authenticate, async (req, res) => {
   try {
     const { reservationId } = req.body;
     const reservation = await Reservation.findById(reservationId);
 
     if (!reservation || reservation.status !== "reserved") {
       return res.status(400).json({ message: "Invalid reservation!" });
+    }
+    if (!ownsReservation(reservation, req.user)) {
+      return res.status(403).json({ message: "Forbidden" });
     }
 
     reservation.status = "checked-in";
@@ -105,13 +125,16 @@ router.post("/checkin", async (req, res) => {
   }
 });
 
-router.post("/checkout", async (req, res) => {
+router.post("/checkout", authenticate, async (req, res) => {
   try {
     const { reservationId } = req.body;
     const reservation = await Reservation.findById(reservationId);
 
     if (!reservation || reservation.status !== "checked-in") {
       return res.status(400).json({ message: "Invalid reservation!" });
+    }
+    if (!ownsReservation(reservation, req.user)) {
+      return res.status(403).json({ message: "Forbidden" });
     }
 
     reservation.status = "completed";
@@ -166,7 +189,7 @@ router.get("/nearby", async (req, res) => {
   res.json(spots);
 });
 
-router.post("/update-status", async (req, res) => {
+router.post("/update-status", requireDeviceKey, async (req, res) => {
   const { spotNumber, isAvailable } = req.body;
 
   if (!spotNumber || typeof isAvailable !== "boolean") {
