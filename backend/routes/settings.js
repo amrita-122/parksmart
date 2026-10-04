@@ -1,11 +1,14 @@
 const express = require("express");
 const router = express.Router();
-const User = require("../models/User"); // Import the User model
+const User = require("../models/User");
+const authenticate = require("../middlewares/authenticate");
 
-// GET route to fetch user info
-router.get("/settings", async (req, res) => {
+// Mounted at /app/settings in app.js, so these are GET/PUT /app/settings.
+
+// GET route to fetch user info (never includes the password hash)
+router.get("/", authenticate, async (req, res) => {
   try {
-    const user = await User.findById(req.user._id); // Assuming you have user authentication
+    const user = await User.findById(req.user.id).select("-password");
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
@@ -15,8 +18,9 @@ router.get("/settings", async (req, res) => {
   }
 });
 
-// PUT route to update user info
-router.put("/settings", async (req, res) => {
+// PUT route to update user info. Only these three fields can change;
+// role, walletBalance and password are never taken from the body.
+router.put("/", authenticate, async (req, res) => {
   try {
     const { name, email, phoneNumber } = req.body;
 
@@ -24,14 +28,23 @@ router.put("/settings", async (req, res) => {
       return res.status(400).json({ message: "Invalid phone number" });
     }
 
-    const updatedUser = await User.findByIdAndUpdate(
-      req.user._id,
-      { name, email, phoneNumber },
-      { new: true }
-    );
+    const updates = {};
+    if (typeof name === "string" && name.trim()) updates.name = name.trim();
+    if (typeof email === "string" && email.trim()) updates.email = email.trim().toLowerCase();
+    if (phoneNumber) updates.phoneNumber = phoneNumber;
 
+    const updatedUser = await User.findByIdAndUpdate(req.user.id, updates, {
+      new: true,
+    }).select("-password");
+
+    if (!updatedUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
     res.json(updatedUser);
   } catch (err) {
+    if (err.code === 11000) {
+      return res.status(409).json({ message: "Email or phone number already in use" });
+    }
     res.status(500).json({ message: "Server error" });
   }
 });

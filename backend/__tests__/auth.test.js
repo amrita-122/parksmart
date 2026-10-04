@@ -27,21 +27,21 @@ describe("POST /api/auth/login", () => {
     expect(res.body.message).toMatch(/required/i);
   });
 
-  it("returns 404 if user not found", async () => {
+  it("returns 401 if user not found", async () => {
     User.findOne = jest.fn().mockResolvedValue(null);
     const res = await request(app)
       .post("/api/auth/login")
       .send({ emailorPhone: "nobody@test.com", password: "pass" });
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(401);
   });
 
-  it("returns 404 on wrong password", async () => {
+  it("returns 401 on wrong password", async () => {
     const hashed = await bcrypt.hash("correctpass", 10);
     User.findOne = jest.fn().mockResolvedValue({ _id: "uid", email: "a@b.com", password: hashed, role: "user" });
     const res = await request(app)
       .post("/api/auth/login")
       .send({ emailorPhone: "a@b.com", password: "wrongpass" });
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(401);
   });
 
   it("returns 200 and token on valid credentials", async () => {

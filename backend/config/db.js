@@ -7,7 +7,8 @@ try {
     console.log("Mongo DB Connected");
   }
  catch (error) {
-  console.log(process.env.MongoDB_URL,"Error Occured while connecting to database",error);
+  // Don't log the connection string: it contains the database password.
+  console.error("Error occurred while connecting to database:", error.message);
   process.exit(1);
 }
 }

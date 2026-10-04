@@ -5,35 +5,61 @@ const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const authenticate = require("../middlewares/authenticate");
 const { Payment } = require("../models/payments");
 
+const MIN_CENTS = 50; // Stripe's minimum charge in USD
+const MAX_CENTS = 100000; // $1,000 per payment
+
 // Create Stripe PaymentIntent
 router.post("/create-intent", authenticate, async (req, res) => {
-  const { amount } = req.body;
+  // The frontend sends dollars * 100, which can carry float noise (7.000000000000001)
+  const amount = Math.round(Number(req.body.amount));
+
+  if (!Number.isInteger(amount) || amount < MIN_CENTS || amount > MAX_CENTS) {
+    return res.status(400).json({ message: "Invalid amount" });
+  }
 
   try {
     const paymentIntent = await stripe.paymentIntents.create({
       amount, // in cents
       currency: "usd",
       payment_method_types: ["card"],
+      // Lets /checkout prove this intent was created for the same user.
+      metadata: { userId: String(req.user.id) },
     });
 
     res.json(paymentIntent.client_secret);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error("Create intent failed:", error.message);
+    res.status(500).json({ message: "Could not start payment" });
   }
 });
 
+// Record a payment. Stripe is the source of truth: the amount and status come
+// from the PaymentIntent, never from the request body.
 router.post("/checkout", authenticate, async (req, res) => {
   try {
-    const { reservationId, amount, paymentMethod, transactionId } = req.body;
+    const { reservationId, transactionId } = req.body;
 
-    console.log("📦 Payment data:", req.body);
-    console.log("🔐 Authenticated user:", req.user);
+    if (typeof transactionId !== "string" || !transactionId.startsWith("pi_")) {
+      return res.status(400).json({ message: "Invalid transactionId" });
+    }
+
+    const intent = await stripe.paymentIntents.retrieve(transactionId);
+
+    if (intent.status !== "succeeded") {
+      return res.status(402).json({ message: "Payment has not succeeded" });
+    }
+    if (intent.metadata?.userId !== String(req.user.id)) {
+      return res.status(403).json({ message: "Payment belongs to another user" });
+    }
+    if (await Payment.findOne({ transactionId })) {
+      return res.status(409).json({ message: "Payment already recorded" });
+    }
 
     const payment = new Payment({
       userId: req.user.id,
       reservationId,
-      amount,
-      paymentMethod,
+      amount: intent.amount_received / 100,
+      paymentMethod: "credit_card", // the intent only allows cards
       transactionId,
       status: "completed",
     });
@@ -41,8 +67,8 @@ router.post("/checkout", authenticate, async (req, res) => {
     await payment.save();
     res.status(201).json({ message: "Payment successful", payment });
   } catch (error) {
-    console.error("❌ Payment save failed:", error.message);
-    res.status(500).json({ message: "Payment failed", error: error.message });
+    console.error("Payment save failed:", error.message);
+    res.status(500).json({ message: "Payment failed" });
   }
 });
 

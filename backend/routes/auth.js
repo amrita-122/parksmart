@@ -1,5 +1,5 @@
 const express=require("express");
-const jwt = require("jsonwebtoken");
+const { signToken } = require("../utils/token");
 const User = require("../models/User");
 const router = express.Router();
 const passport = require("passport");
@@ -19,7 +19,8 @@ router.get(
   "/google/callback",
   passport.authenticate("google", { failureRedirect: "/login" }),
   (req, res) => {
-    res.redirect(`http://localhost:5173/?token=${req.user.token}`);
+    const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
+    res.redirect(`${clientUrl}/?token=${req.user.token}`);
   }
 );
 
@@ -59,12 +60,12 @@ router.post("/google", async (req, res) => {
         });
         await user.save();
       }
-      const jwtToken = jwt.sign(
-        { id: user._id, email: user.email },
-        process.env.JWT_SECRET
-      );
+      const jwtToken = signToken({ id: user._id, email: user.email, role: user.role });
 
-      res.json({ token: jwtToken, user });
+      // Never send the password hash back: a local account that signs in with
+      // Google would otherwise leak it here.
+      const { password, ...safeUser } = user.toObject();
+      res.json({ token: jwtToken, user: safeUser });
     } catch (verifyError) {
       return res.status(401).json({ error: "Invalid token" });
     }
