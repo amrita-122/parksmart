@@ -374,7 +374,7 @@ VITE_STRIPE_PUBLIC_KEY=
 
 Current gaps that are worth fixing before a real deployment:
 
-- Reservations are not yet race-safe: two users booking the same spot at the same moment can both pass the availability check. See the Planned items under Reservations.
+- Claiming a spot in `/api/parking/reserve` is atomic, so two users booking the same spot at the same moment can no longer both succeed. Time-range overlap checks are still Planned (see Reservations), and the device route `/api/parking/update-status` can still overwrite `isAvailable` on a reserved spot.
 - Payments are matched to reservations by user, not by price, so a cheap payment can still claim a longer booking. Pricing should be computed on the server from the booked duration.
 - There is no refresh-token flow and tokens cannot be revoked before they expire. The token is kept in `localStorage`.
 - The redirect-based Google login (`GET /api/auth/google` and its callback) is not working: the Passport verify callback in `config/passport.js` has the wrong argument order and a relative `callbackURL`. The frontend uses the ID-token flow (`POST /api/auth/google`), which does work.

@@ -59,16 +59,28 @@ router.post("/reserve", authenticate, async (req, res) => {
   try {
     const { spotId, startTime, endTime } = req.body;
     const userId = req.user.id;
-    const spot = await ParkingSpot.findById(spotId);
-    if (!spot || !spot.isAvailable) {
-      return res.status(400).json({ message: "Spot is not available!" });
-    }
 
     const now = new Date();
     const maxReserveTime = new Date(now.getTime() + 20 * 60 * 1000);
     if (new Date(startTime) > maxReserveTime) {
       return res.status(400).json({ message: "Reservation must be within 20 minutes from now." });
     }
+
+    // Claim the spot with one conditional write so only one request can win.
+    const claimedSpot = await ParkingSpot.findOneAndUpdate(
+      { _id: spotId, isAvailable: true },
+      { isAvailable: false, reservedBy: userId },
+      { new: true }
+    );
+    if (!claimedSpot) {
+      return res.status(400).json({ message: "Spot is not available!" });
+    }
+    // Only frees the spot if this user still holds it.
+    const releaseSpot = () =>
+      ParkingSpot.findOneAndUpdate(
+        { _id: spotId, reservedBy: userId },
+        { isAvailable: true, reservedBy: null }
+      );
 
     // One payment pays for one reservation: claim an unused completed payment
     // (reservationId still null) instead of accepting any payment ever made.
@@ -79,24 +91,20 @@ router.post("/reserve", authenticate, async (req, res) => {
       { sort: { timestamp: 1 } }
     );
     if (!payment) {
+      await releaseSpot();
       return res.status(403).json({ message: "Please complete a payment before reserving." });
     }
 
     try {
       await reservation.save();
     } catch (saveError) {
-      // Give the payment back so the user can retry.
+      // Give the payment and the spot back so the user can retry.
       await Payment.findByIdAndUpdate(payment._id, { reservationId: null });
+      await releaseSpot();
       throw saveError;
     }
 
-    const updatedSpot = await ParkingSpot.findByIdAndUpdate(
-      spotId,
-      { isAvailable: false, reservedBy: userId },
-      { new: true }
-    );
-
-    getIO().emit("spot:updated", updatedSpot);
+    getIO().emit("spot:updated", claimedSpot);
 
     res.status(201).json({ message: "Spot reserved successfully!", reservation });
   } catch (error) {
