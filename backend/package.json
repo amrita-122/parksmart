@@ -9,6 +9,9 @@
   },
   "jest": {
     "testEnvironment": "node",
+    "setupFiles": [
+      "<rootDir>/__tests__/setupEnv.js"
+    ],
     "testMatch": [
       "**/__tests__/**/*.test.js"
     ]

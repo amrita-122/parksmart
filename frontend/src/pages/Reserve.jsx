@@ -17,7 +17,7 @@ export default function Reserve() {
           headers: { Authorization: `Bearer ${token}` },
         });
         setSpots(res.data.filter((s) => s.isAvailable));
-      } catch (err) {
+      } catch {
         alert("Failed to load spots.");
       }
     };

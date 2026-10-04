@@ -30,4 +30,12 @@ export default [
       ],
     },
   },
+  {
+    // Tooling config files run in Node as CommonJS, not in the browser.
+    files: ['tailwind.config.js'],
+    languageOptions: {
+      globals: globals.node,
+      sourceType: 'commonjs',
+    },
+  },
 ]
