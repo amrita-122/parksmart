@@ -28,7 +28,7 @@ export const Maps = ({ nearestSpot }) => {
   const [routeInfo, setRouteInfo]         = useState(null);
   const [sidebarOpen, setSidebarOpen]     = useState(false);
   const [markerRef, marker]               = useAdvancedMarkerRef();
-  const mapsLib                           = useMapsLibrary("routes"); // ensures library loads
+  useMapsLibrary("routes"); // ensures library loads
   const navigate                          = useNavigate();
 
   const visibleSpots = filteredSpots ?? allSpots;

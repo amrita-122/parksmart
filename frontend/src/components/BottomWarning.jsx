@@ -1,6 +1,5 @@
 import { Link } from "react-router-dom"
 
-// eslint-disable-next-line react/prop-types
 export function BottomWarning({label,buttonText,to}){
     return <div className="py-2 text-sm flex justify-center">
         <div>

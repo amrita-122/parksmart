@@ -5,7 +5,6 @@ import { InputBox } from "../components/InputBox";
 import { Subheading } from "../components/SubHeading";
 import { Heading } from "../components/heading";
 import axios from "axios";
-import { useNavigate } from "react-router-dom";
 import { GoogleLogin } from "@react-oauth/google";
 import { DialogBox } from "../components/DialogBox";
 

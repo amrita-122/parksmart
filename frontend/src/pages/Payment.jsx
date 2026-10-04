@@ -44,7 +44,7 @@ export default function Payment() {
       );
   
       // 4. ✅ Now reserve the spot — payment will be found in Mongo
-      const res = await axios.post(
+      await axios.post(
         "http://localhost:3000/api/parking/reserve",
         { spotId, startTime, endTime },
         { headers: { Authorization: `Bearer ${token}` } }

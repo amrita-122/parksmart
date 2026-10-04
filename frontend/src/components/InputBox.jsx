@@ -1,4 +1,3 @@
-// eslint-disable-next-line react/prop-types
 export function InputBox({ label, placeholder ,onChange}) {
   return (
     <div className="text-sm font-medium text-left py-2">
