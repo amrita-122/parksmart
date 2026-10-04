@@ -71,7 +71,18 @@ describe("POST /api/payment/create-intent", () => {
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
+  it("returns 409 without creating an intent when the user has an overlapping booking", async () => {
+    Reservation.findOne = jest.fn().mockResolvedValue({ _id: "r1" });
+    const res = await request(app).post("/api/payment/create-intent").set(auth()).send(booking(HOUR));
+    expect(res.status).toBe(409);
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(Reservation.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "user123", status: { $in: ["reserved", "checked-in"] } })
+    );
+  });
+
   it("prices the intent from the duration and ignores a client amount", async () => {
+    Reservation.findOne = jest.fn().mockResolvedValue(null);
     mockCreate.mockResolvedValue({ client_secret: "secret_123" });
     const res = await request(app)
       .post("/api/payment/create-intent")
@@ -152,13 +163,24 @@ describe("DELETE /api/user/cancel/:id", () => {
     expect(res.status).toBe(400);
   });
 
-  it("cancels the owner's reservation and frees the spot", async () => {
-    Reservation.findById = jest.fn().mockResolvedValue({ _id: "r1", userId: "user123", spotId: "s1", status: "reserved" });
-    Reservation.findByIdAndDelete = jest.fn().mockResolvedValue({});
+  it("keeps the cancelled reservation and frees the spot", async () => {
+    const reservation = {
+      _id: "r1", userId: "user123", spotId: "s1", status: "reserved",
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    Reservation.findById = jest.fn().mockResolvedValue(reservation);
+    Reservation.findByIdAndDelete = jest.fn();
     ParkingSpot.findByIdAndUpdate = jest.fn().mockResolvedValue({});
     const res = await request(app).delete("/api/user/cancel/r1").set(auth());
     expect(res.status).toBe(200);
-    expect(ParkingSpot.findByIdAndUpdate).toHaveBeenCalledWith("s1", { isAvailable: true, reservedBy: null });
+    expect(reservation.status).toBe("cancelled");
+    expect(reservation.save).toHaveBeenCalled();
+    expect(Reservation.findByIdAndDelete).not.toHaveBeenCalled();
+    expect(ParkingSpot.findByIdAndUpdate).toHaveBeenCalledWith(
+      "s1",
+      { isAvailable: true, reservedBy: null, occupiedBy: null },
+      { new: true }
+    );
   });
 });
 

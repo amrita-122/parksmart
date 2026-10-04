@@ -74,18 +74,13 @@ Server structure: `backend/server.js` creates the HTTP server, initialises socke
   - The spot exists and is available
   - `startTime` and `endTime` are valid dates and `endTime` is after `startTime`
   - `startTime` is not in the past (a 10-minute grace window covers the time spent paying) and is no more than 20 minutes from now
+  - The user has no other active (`reserved` or `checked-in`) reservation whose time range overlaps this one (409). `POST /api/payment/create-intent` runs the same check so the user is not charged for a booking that would be rejected. Back-to-back bookings are allowed. Two bookings can never share a spot, because the spot is claimed with one conditional write. Known race: two simultaneous requests from the same user for different spots can both pass, since the check is a read followed by a write.
   - The user has a completed payment that has not been used yet. Each payment covers exactly one reservation: the reservation claims it, so one payment cannot be reused for unlimited bookings.
 - A successful reservation marks the spot unavailable (`reservedBy` is set) and broadcasts a `spot:updated` socket event.
-- Reservation statuses: `reserved` → `checked-in` → `completed`. The schema also allows `cancelled`.
-- Check-in (`POST /api/parking/checkin`) moves a `reserved` reservation to `checked-in`. Check-in, check-out, checkout-credit and cancel only work on the logged-in user's own reservations (403 otherwise).
-- Check-out (`POST /api/parking/checkout`) moves a `checked-in` reservation to `completed`, makes the spot available again and broadcasts `spot:updated`. `POST /api/user/checkout-credit` does the same and also credits unused time to the wallet (see Wallet).
-- Cancelling (`DELETE /api/user/cancel/:id`) is only allowed before check-in. It frees the spot and deletes the reservation record.
-
-**Planned (not yet implemented)**
-
-- Reject reservations that overlap an existing active reservation for the same user or the same spot.
-- Mark the spot as occupied (`occupiedBy`) on check-in.
-- Keep cancelled reservations with a `cancelled` status instead of deleting them.
+- Reservation statuses: `reserved` → `checked-in` → `completed`, or `reserved` → `cancelled`.
+- Check-in (`POST /api/parking/checkin`) moves a `reserved` reservation to `checked-in`, sets the spot's `occupiedBy` to the user and broadcasts `spot:updated`. Check-in, check-out, checkout-credit and cancel only work on the logged-in user's own reservations (403 otherwise).
+- Check-out (`POST /api/parking/checkout`) moves a `checked-in` reservation to `completed`, makes the spot available again (clearing `occupiedBy`) and broadcasts `spot:updated`. `POST /api/user/checkout-credit` does the same and also credits unused time to the wallet (see Wallet).
+- Cancelling (`DELETE /api/user/cancel/:id`) is only allowed before check-in. It frees the spot, broadcasts `spot:updated` and keeps the reservation with status `cancelled` so history and the admin view still show it. Cancelling does not refund the payment.
 
 ### Payments
 
@@ -376,7 +371,7 @@ VITE_STRIPE_PUBLIC_KEY=
 
 Current gaps that are worth fixing before a real deployment:
 
-- Claiming a spot in `/api/parking/reserve` is atomic, so two users booking the same spot at the same moment can no longer both succeed. Overlap checks for the same user or spot are still Planned (see Reservations).
+- Claiming a spot in `/api/parking/reserve` is atomic, so two users booking the same spot at the same moment can no longer both succeed. Overlap checks for the same user are in place (see Reservations).
 - There is no refresh-token flow and tokens cannot be revoked before they expire. The token is kept in `localStorage`.
 - The redirect-based Google login (`GET /api/auth/google` and its callback) is not working: the Passport verify callback in `config/passport.js` has the wrong argument order and a relative `callbackURL`. The frontend uses the ID-token flow (`POST /api/auth/google`), which does work.
 - No request-body schema validation beyond the checks in each route. Rate limits are per IP and in memory, so they reset on restart and are not shared across instances.

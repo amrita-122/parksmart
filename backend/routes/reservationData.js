@@ -51,8 +51,16 @@ router.delete("/cancel/:id", authenticate, async (req, res) => {
       return res.status(400).json({ error: "Only a reservation that has not been checked in can be cancelled" });
     }
 
-    await ParkingSpot.findByIdAndUpdate(reservation.spotId, { isAvailable: true, reservedBy: null });
-    await Reservation.findByIdAndDelete(req.params.id);
+    // Keep the record (status "cancelled") so history and the admin view still show it.
+    reservation.status = "cancelled";
+    await reservation.save();
+
+    const freedSpot = await ParkingSpot.findByIdAndUpdate(
+      reservation.spotId,
+      { isAvailable: true, reservedBy: null, occupiedBy: null },
+      { new: true }
+    );
+    getIO().emit("spot:updated", freedSpot);
 
     res.json({ message: "Reservation cancelled" });
   } catch (error) {
@@ -87,7 +95,7 @@ router.post("/checkout-credit", authenticate, async (req, res) => {
 
     const updatedSpot = await ParkingSpot.findByIdAndUpdate(
       reservation.spotId,
-      { isAvailable: true, reservedBy: null },
+      { isAvailable: true, reservedBy: null, occupiedBy: null },
       { new: true }
     );
 

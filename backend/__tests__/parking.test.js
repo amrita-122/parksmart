@@ -211,13 +211,31 @@ describe("POST /api/parking/checkin and /checkout ownership", () => {
     expect(res.status).toBe(403);
   });
 
-  it("checkin succeeds for the owner", async () => {
+  it("checkin succeeds for the owner and marks the spot occupied", async () => {
     Reservation.findById = jest.fn().mockResolvedValue(reservation("user123", "reserved"));
+    ParkingSpot.findByIdAndUpdate = jest.fn().mockResolvedValue({ _id: "s1", occupiedBy: "user123" });
     const res = await request(app)
       .post("/api/parking/checkin")
       .set("Authorization", `Bearer ${makeToken()}`)
       .send({ reservationId: "r1" });
     expect(res.status).toBe(200);
+    expect(ParkingSpot.findByIdAndUpdate).toHaveBeenCalledWith("s1", { occupiedBy: "user123" }, { new: true });
+    expect(mockEmit).toHaveBeenCalledWith("spot:updated", expect.objectContaining({ occupiedBy: "user123" }));
+  });
+
+  it("checkout clears occupiedBy and frees the spot", async () => {
+    Reservation.findById = jest.fn().mockResolvedValue(reservation("user123", "checked-in"));
+    ParkingSpot.findByIdAndUpdate = jest.fn().mockResolvedValue({ _id: "s1" });
+    const res = await request(app)
+      .post("/api/parking/checkout")
+      .set("Authorization", `Bearer ${makeToken()}`)
+      .send({ reservationId: "r1" });
+    expect(res.status).toBe(200);
+    expect(ParkingSpot.findByIdAndUpdate).toHaveBeenCalledWith(
+      "s1",
+      { isAvailable: true, reservedBy: null, occupiedBy: null },
+      { new: true }
+    );
   });
 
   it("checkout returns 403 for someone else's reservation", async () => {
@@ -278,6 +296,22 @@ describe("POST /api/parking/reserve", () => {
       expect(res.body.message).toMatch(/not available/i);
       expect(ParkingSpot.findOneAndUpdate).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it("returns 409 before claiming a spot or taking payment if the user has an overlapping booking", async () => {
+    Reservation.findOne = jest.fn().mockResolvedValue({ _id: "existing" });
+    ParkingSpot.findOneAndUpdate = jest.fn();
+    Payment.findOneAndUpdate = jest.fn();
+    const { startTime, endTime } = times();
+    const res = await request(app)
+      .post("/api/parking/reserve")
+      .set("Authorization", `Bearer ${makeToken()}`)
+      .send({ spotId: "s1", startTime, endTime });
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/overlaps/i);
+    expect(ParkingSpot.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(Payment.findOneAndUpdate).not.toHaveBeenCalled();
+    Reservation.findOne = jest.fn().mockResolvedValue(null);
   });
 
   it("returns 400 if the spot cannot be claimed", async () => {

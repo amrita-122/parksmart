@@ -7,6 +7,7 @@ const { Payment } = require("../models/payments");
 const User = require("../models/User");
 const { getIO } = require("../socket");
 const { priceForDuration } = require("../utils/pricing");
+const { findOverlappingReservation } = require("../utils/overlap");
 
 router.post("/add", authenticate, requireAdmin, async (req, res) => {
   try {
@@ -82,6 +83,12 @@ router.post("/reserve", authenticate, async (req, res) => {
     const maxReserveTime = new Date(now.getTime() + 20 * 60 * 1000);
     if (start > maxReserveTime) {
       return res.status(400).json({ message: "Reservation must be within 20 minutes from now." });
+    }
+
+    // The same user cannot hold two active bookings that overlap in time. Two users
+    // (or one user) can never share a spot: the claim below is atomic.
+    if (await findOverlappingReservation(userId, start, end)) {
+      return res.status(409).json({ message: "You already have a reservation that overlaps this time." });
     }
 
     // Claim the spot with one conditional write so only one request can win.
@@ -179,6 +186,13 @@ router.post("/checkin", authenticate, async (req, res) => {
     reservation.status = "checked-in";
     await reservation.save();
 
+    const occupiedSpot = await ParkingSpot.findByIdAndUpdate(
+      reservation.spotId,
+      { occupiedBy: req.user.id },
+      { new: true }
+    );
+    getIO().emit("spot:updated", occupiedSpot);
+
     res.status(200).json({ message: "Checked in successfully!", reservation });
   } catch (error) {
     res.status(500).json({ message: "Internal Server Error", error: error.message });
@@ -202,7 +216,7 @@ router.post("/checkout", authenticate, async (req, res) => {
 
     const updatedSpot = await ParkingSpot.findByIdAndUpdate(
       reservation.spotId,
-      { isAvailable: true, reservedBy: null },
+      { isAvailable: true, reservedBy: null, occupiedBy: null },
       { new: true }
     );
 
