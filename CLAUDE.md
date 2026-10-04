@@ -30,4 +30,4 @@ The code, `seed.js`, the README and CI now all use these names. Keep the backend
 - Take the user from `req.user.id`, never from the request body. Sign tokens only with `utils/token.js` `signToken` so they expire.
 - Payments are verified against Stripe in `/api/payment/checkout`; the stored amount comes from Stripe. Each payment is claimed by one reservation in `/api/parking/reserve`.
 - Never return password hashes (`.select("-password")` or strip them) and never log secrets or connection strings.
-- Open gaps (see README "Known Limitations"): reservation race condition, payment amount not tied to booked duration, no refresh tokens, the redirect-based Google login (`GET /api/auth/google`) is broken, no `helmet`, `npm audit` findings.
+- Open gaps (see README "Known Limitations"): payment amount not tied to booked duration, no refresh tokens, the redirect-based Google login (`GET /api/auth/google`) is broken, no `helmet`, `npm audit` findings.
