@@ -38,6 +38,11 @@ export default function Reserve() {
       return;
     }
 
+    if (new Date(endTime) <= start) {
+      alert("End time must be after the start time.");
+      return;
+    }
+
     const durationInHours = Math.ceil((new Date(endTime) - start) / (60 * 60 * 1000));
     const amount = durationInHours * 5; // example: $5/hour
 

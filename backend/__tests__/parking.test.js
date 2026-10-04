@@ -151,8 +151,40 @@ describe("POST /api/parking/update-status", () => {
 
   it("returns 404 when spot not found", async () => {
     ParkingSpot.findOneAndUpdate = jest.fn().mockResolvedValue(null);
+    ParkingSpot.exists = jest.fn().mockResolvedValue(null);
     const res = await send({ spotNumber: "999", isAvailable: true });
     expect(res.status).toBe(404);
+  });
+
+  it("ignores an 'available' report for a reserved spot", async () => {
+    ParkingSpot.findOneAndUpdate = jest.fn().mockResolvedValue(null);
+    ParkingSpot.exists = jest.fn().mockResolvedValue({ _id: "s1" });
+    mockEmit.mockClear();
+
+    const res = await send({ spotNumber: "11", isAvailable: true });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ success: true, ignored: true });
+    expect(ParkingSpot.findOneAndUpdate.mock.calls[0][0]).toEqual({ spotNumber: "11", reservedBy: null });
+    expect(mockEmit).not.toHaveBeenCalled();
+  });
+
+  it("frees an unreserved spot on an 'available' report", async () => {
+    const updatedSpot = { _id: "s1", spotNumber: "11", isAvailable: true };
+    ParkingSpot.findOneAndUpdate = jest.fn().mockResolvedValue(updatedSpot);
+    mockEmit.mockClear();
+
+    const res = await send({ spotNumber: "11", isAvailable: true });
+
+    expect(res.status).toBe(200);
+    expect(res.body.ignored).toBeUndefined();
+    expect(mockEmit).toHaveBeenCalledWith("spot:updated", updatedSpot);
+  });
+
+  it("always applies an 'occupied' report, even for a reserved spot", async () => {
+    ParkingSpot.findOneAndUpdate = jest.fn().mockResolvedValue({ _id: "s1", isAvailable: false });
+    await send({ spotNumber: "11", isAvailable: false });
+    expect(ParkingSpot.findOneAndUpdate.mock.calls[0][0]).toEqual({ spotNumber: "11" });
   });
 });
 
@@ -199,18 +231,63 @@ describe("POST /api/parking/checkin and /checkout ownership", () => {
 });
 
 describe("POST /api/parking/reserve", () => {
+  const MIN = 60 * 1000;
+  // Times are offsets in minutes from now; the booking lasts one hour by default.
+  const times = (startOffsetMin = 0, durationMin = 60) => {
+    const start = Date.now() + startOffsetMin * MIN;
+    return {
+      startTime: new Date(start).toISOString(),
+      endTime: new Date(start + durationMin * MIN).toISOString(),
+    };
+  };
+
   it("returns 401 without auth token", async () => {
     const res = await request(app).post("/api/parking/reserve").send({});
     expect(res.status).toBe(401);
   });
 
+  describe("time validation", () => {
+    const reserve = (body) =>
+      request(app)
+        .post("/api/parking/reserve")
+        .set("Authorization", `Bearer ${makeToken()}`)
+        .send({ spotId: "s1", ...body });
+
+    beforeEach(() => {
+      ParkingSpot.findOneAndUpdate = jest.fn().mockResolvedValue(null);
+    });
+
+    it.each([
+      ["missing times", {}, /valid dates/i],
+      ["an invalid date", { startTime: "not-a-date", endTime: "2030-01-01" }, /valid dates/i],
+      ["endTime before startTime", times(0, -30), /after startTime/i],
+      ["endTime equal to startTime", times(0, 0), /after startTime/i],
+      ["a start more than 10 minutes in the past", times(-11), /in the past/i],
+      ["a start more than 20 minutes ahead", times(25), /within 20 minutes/i],
+    ])("returns 400 for %s without touching the spot", async (_name, body, message) => {
+      const res = await reserve(body);
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(message);
+      expect(ParkingSpot.findOneAndUpdate).not.toHaveBeenCalled();
+    });
+
+    it("accepts a start a couple of minutes in the past", async () => {
+      const res = await reserve(times(-2));
+      // Validation passed, so it reaches the (mocked, unavailable) spot claim.
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/not available/i);
+      expect(ParkingSpot.findOneAndUpdate).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("returns 400 if the spot cannot be claimed", async () => {
     ParkingSpot.findOneAndUpdate = jest.fn().mockResolvedValue(null);
     Payment.findOneAndUpdate = jest.fn();
+    const { startTime, endTime } = times();
     const res = await request(app)
       .post("/api/parking/reserve")
       .set("Authorization", `Bearer ${makeToken()}`)
-      .send({ spotId: "s1", startTime: new Date().toISOString(), endTime: new Date().toISOString() });
+      .send({ spotId: "s1", startTime, endTime });
     expect(res.status).toBe(400);
     expect(res.body.message).toMatch(/not available/i);
     // The loser of a race must not touch any payment.
@@ -223,11 +300,11 @@ describe("POST /api/parking/reserve", () => {
       .mockResolvedValueOnce({ _id: "s1", isAvailable: false })
       .mockResolvedValue(null);
     Payment.findOneAndUpdate = jest.fn().mockResolvedValue(null);
-    const startTime = new Date().toISOString();
+    const { startTime, endTime } = times();
     const res = await request(app)
       .post("/api/parking/reserve")
       .set("Authorization", `Bearer ${makeToken()}`)
-      .send({ spotId: "s1", startTime, endTime: startTime });
+      .send({ spotId: "s1", startTime, endTime });
     expect(res.status).toBe(403);
     expect(res.body.message).toMatch(/payment/i);
     expect(ParkingSpot.findOneAndUpdate).toHaveBeenLastCalledWith(
@@ -247,11 +324,11 @@ describe("POST /api/parking/reserve", () => {
       _id: "r1",
       save: jest.fn().mockRejectedValue(new Error("db down")),
     }));
-    const startTime = new Date().toISOString();
+    const { startTime, endTime } = times();
     const res = await request(app)
       .post("/api/parking/reserve")
       .set("Authorization", `Bearer ${makeToken()}`)
-      .send({ spotId: "s1", startTime, endTime: startTime });
+      .send({ spotId: "s1", startTime, endTime });
     expect(res.status).toBe(500);
     expect(Payment.findByIdAndUpdate).toHaveBeenCalledWith("p1", { reservationId: null });
     expect(ParkingSpot.findOneAndUpdate).toHaveBeenLastCalledWith(
@@ -267,12 +344,12 @@ describe("POST /api/parking/reserve", () => {
       _id: "r1",
       save: jest.fn().mockResolvedValue(undefined),
     }));
-    const startTime = new Date().toISOString();
+    const { startTime, endTime } = times();
 
     const res = await request(app)
       .post("/api/parking/reserve")
       .set("Authorization", `Bearer ${makeToken()}`)
-      .send({ spotId: "s1", startTime, endTime: startTime });
+      .send({ spotId: "s1", startTime, endTime });
 
     expect(res.status).toBe(201);
     expect(ParkingSpot.findOneAndUpdate).toHaveBeenCalledWith(
