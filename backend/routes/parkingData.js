@@ -2,7 +2,8 @@ const express = require("express");
 const { ParkingSpot, Reservation } = require("../models/parking_db");
 const router = express.Router();
 const authenticate = require("../middlewares/authenticate");
-const { Payment } = require("../models/payments"); // ✅ Add this
+const { Payment } = require("../models/payments");
+const { getIO } = require("../socket");
 
 router.post("/add", async (req, res) => {
   try {
@@ -26,10 +27,8 @@ router.post("/add", async (req, res) => {
     await newSpot.save();
     res.status(201).json({ message: "Parking spot added!", spot: newSpot });
   } catch (error) {
-    console.error("🚨 Spot Add Error:", error.message);
-    res
-      .status(500)
-      .json({ message: "Internal Server Error", error: error.message });
+    console.error("Spot Add Error:", error.message);
+    res.status(500).json({ message: "Internal Server Error", error: error.message });
   }
 });
 
@@ -42,15 +41,12 @@ router.delete("/delete/:id", async (req, res) => {
   }
 });
 
-// 2️⃣ Get All Parking Spots
-router.get("/all", async (req, res) => {
+router.get("/all", async (_req, res) => {
   try {
     const spots = await ParkingSpot.find();
     res.status(200).json(spots);
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Internal Server Error", error: error.message });
+    res.status(500).json({ message: "Internal Server Error", error: error.message });
   }
 });
 
@@ -66,48 +62,31 @@ router.post("/reserve", authenticate, async (req, res) => {
     const now = new Date();
     const maxReserveTime = new Date(now.getTime() + 20 * 60 * 1000);
     if (new Date(startTime) > maxReserveTime) {
-      return res.status(400).json({
-        message: "Reservation must be within 20 minutes from now.",
-      });
+      return res.status(400).json({ message: "Reservation must be within 20 minutes from now." });
     }
-    const hasPaid = await Payment.findOne({
-      userId,
-      amount: { $gt: 0 },
-      status: "completed",
-    }).sort({ timestamp: -1 }); // <-- ensure latest one is considered
 
+    const hasPaid = await Payment.findOne({ userId, amount: { $gt: 0 }, status: "completed" }).sort({ timestamp: -1 });
     if (!hasPaid) {
-      return res.status(403).json({
-        message: "Please complete a payment before reserving.",
-      });
+      return res.status(403).json({ message: "Please complete a payment before reserving." });
     }
 
-    // Create reservation
-    const reservation = new Reservation({
-      userId,
-      spotId,
-      startTime,
-      endTime,
-      status: "reserved",
-    });
-
+    const reservation = new Reservation({ userId, spotId, startTime, endTime, status: "reserved" });
     await reservation.save();
-    await ParkingSpot.findByIdAndUpdate(spotId, {
-      isAvailable: false,
-      reservedBy: userId,
-    });
 
-    res
-      .status(201)
-      .json({ message: "Spot reserved successfully!", reservation });
+    const updatedSpot = await ParkingSpot.findByIdAndUpdate(
+      spotId,
+      { isAvailable: false, reservedBy: userId },
+      { new: true }
+    );
+
+    getIO().emit("spot:updated", updatedSpot);
+
+    res.status(201).json({ message: "Spot reserved successfully!", reservation });
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Internal Server Error", error: error.message });
+    res.status(500).json({ message: "Internal Server Error", error: error.message });
   }
 });
 
-// 4️⃣ Check-in to a Reserved Spot
 router.post("/checkin", async (req, res) => {
   try {
     const { reservationId } = req.body;
@@ -119,15 +98,13 @@ router.post("/checkin", async (req, res) => {
 
     reservation.status = "checked-in";
     await reservation.save();
+
     res.status(200).json({ message: "Checked in successfully!", reservation });
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Internal Server Error", error: error.message });
+    res.status(500).json({ message: "Internal Server Error", error: error.message });
   }
 });
 
-// 5️⃣ Check-out from a Spot
 router.post("/checkout", async (req, res) => {
   try {
     const { reservationId } = req.body;
@@ -139,42 +116,34 @@ router.post("/checkout", async (req, res) => {
 
     reservation.status = "completed";
     await reservation.save();
-    await ParkingSpot.findByIdAndUpdate(reservation.spotId, {
-      isAvailable: true,
-      reservedBy: null,
-    });
+
+    const updatedSpot = await ParkingSpot.findByIdAndUpdate(
+      reservation.spotId,
+      { isAvailable: true, reservedBy: null },
+      { new: true }
+    );
+
+    getIO().emit("spot:updated", updatedSpot);
 
     res.status(200).json({ message: "Checked out successfully!" });
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Internal Server Error", error: error.message });
+    res.status(500).json({ message: "Internal Server Error", error: error.message });
   }
 });
 
-module.exports = router;
-
 router.get("/nearest", authenticate, async (req, res) => {
   const { lat, lng } = req.query;
-
-  if (!lat || !lng) {
-    return res.status(400).json({ message: "Missing coordinates" });
-  }
+  if (!lat || !lng) return res.status(400).json({ message: "Missing coordinates" });
 
   const spots = await ParkingSpot.find({ isAvailable: true });
-
-  if (!spots.length) {
-    return res.status(404).json({ message: "No spots available" });
-  }
+  if (!spots.length) return res.status(404).json({ message: "No spots available" });
 
   const userLat = parseFloat(lat);
   const userLng = parseFloat(lng);
 
   const nearest = spots.reduce((closest, spot) => {
     const d1 = Math.sqrt((spot.lat - userLat) ** 2 + (spot.lng - userLng) ** 2);
-    const d2 = Math.sqrt(
-      (closest.lat - userLat) ** 2 + (closest.lng - userLng) ** 2
-    );
+    const d2 = Math.sqrt((closest.lat - userLat) ** 2 + (closest.lng - userLng) ** 2);
     return d1 < d2 ? spot : closest;
   });
 
@@ -182,17 +151,13 @@ router.get("/nearest", authenticate, async (req, res) => {
 });
 
 router.get("/nearby", async (req, res) => {
-  const { lat, lng, radius = 0.5 } = req.query; // radius in KM
+  const { lat, lng, radius = 0.5 } = req.query;
   const latNum = parseFloat(lat);
   const lngNum = parseFloat(lng);
 
-  if (!latNum || !lngNum) {
-    return res.status(400).json({ message: "Missing lat/lng" });
-  }
+  if (!latNum || !lngNum) return res.status(400).json({ message: "Missing lat/lng" });
 
-  // Convert radius to degrees roughly (1km ≈ 0.009 degrees)
   const delta = parseFloat(radius) * 0.009;
-
   const spots = await ParkingSpot.find({
     lat: { $gte: latNum - delta, $lte: latNum + delta },
     lng: { $gte: lngNum - delta, $lte: lngNum + delta },
@@ -214,12 +179,15 @@ router.post("/update-status", async (req, res) => {
       { isAvailable },
       { new: true }
     );
-    if (!spot) {
-      return res.status(404).json({ message: "Spot not found" });
-    }
+    if (!spot) return res.status(404).json({ message: "Spot not found" });
+
+    // Broadcast real-time update to all connected clients
+    getIO().emit("spot:updated", spot);
 
     res.json({ success: true, updated: spot });
   } catch (error) {
     res.status(500).json({ message: "Update failed", error: error.message });
   }
 });
+
+module.exports = router;

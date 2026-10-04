@@ -99,6 +99,14 @@ const CheckOutSchema = new mongoose.Schema({
     }
 });
 
+ParkingSpotSchema.index({ lat: 1, lng: 1 });
+// spotNumber already indexed via unique:true above
+ParkingSpotSchema.index({ isAvailable: 1 });
+
+ReservationSchema.index({ userId: 1 });
+ReservationSchema.index({ spotId: 1 });
+ReservationSchema.index({ status: 1 });
+
 module.exports = {
     ParkingSpot: mongoose.model("ParkingSpot", ParkingSpotSchema),
     Reservation: mongoose.model("Reservation", ReservationSchema),

@@ -279,15 +279,14 @@ node bridge.js
 
 **backend/.env**
 ```
-MONGODB_URL=
+MongoDB_URL=
 JWT_SECRET=
 PORT=3000
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 REFRESH_TOKEN=
-REDIRECT_URL=http://localhost:3000/auth/google/callback
+REDIRECT_URI=http://localhost:3000/auth/google/callback
 GMAIL_USER=
-MAPS_API=
 STRIPE_SECRET_KEY=
 ```
 
