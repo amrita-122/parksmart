@@ -1,68 +1,45 @@
 import Maps from "../components/Maps";
 import { useEffect, useState } from "react";
 import axios from "axios";
-import { useNavigate } from "react-router-dom";
+
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
 export const Home = () => {
   const [nearestSpot, setNearestSpot] = useState(null);
-  const [currentLocation, setCurrentLocation] = useState(null);
   const token = localStorage.getItem("token");
 
   useEffect(() => {
     navigator.geolocation.getCurrentPosition(
       async (position) => {
-        const lat = position.coords.latitude;
-        const lng = position.coords.longitude;
-        setCurrentLocation({ lat, lng });
-
-        const res = await axios.get(
-          `http://localhost:3000/api/parking/nearest?lat=${lat}&lng=${lng}`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          }
-        );
-        setNearestSpot(res.data);
+        const { latitude: lat, longitude: lng } = position.coords;
+        try {
+          const res = await axios.get(
+            `${API_URL}/api/parking/nearest?lat=${lat}&lng=${lng}`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          setNearestSpot(res.data);
+        } catch (err) {
+          // 404 = no available spots — not a crash, just nothing to show
+          if (err.response?.status !== 404) console.error("Failed to fetch nearest spot:", err);
+        }
       },
-      (error) => {
-        console.error("Location error", error);
-        alert("Location access denied");
-      },
+      (err) => console.error("Location error", err),
       { enableHighAccuracy: true }
     );
   }, []);
 
-  const navigateToSpot = () => {
-    if (nearestSpot) {
-      const url = `https://www.google.com/maps/dir/?api=1&destination=${nearestSpot.lat},${nearestSpot.lng}&travelmode=driving`;
-      window.open(url, "_blank");
-    }
-  };
-
   return (
     <div className="h-screen relative">
-      <Maps
-        highlightLocation={
-          nearestSpot ? { lat: nearestSpot.lat, lng: nearestSpot.lng } : null
-        }
-      />
+      {/* Pass nearestSpot so Maps can auto-highlight + draw route */}
+      <Maps nearestSpot={nearestSpot} />
 
-      {nearestSpot && (
-        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-white shadow-md p-4 rounded-xl z-50 w-80">
-          <h2 className="text-lg font-semibold mb-2 text-center text-blue-700">
-            🚗 Nearest Available Spot
-          </h2>
-          <p className="text-sm text-gray-700 text-center">
-            Lot: <strong>{nearestSpot.lotNumber}</strong>, Spot:{" "}
-            <strong>{nearestSpot.spotNumber}</strong>
-          </p>
-          <button
-            onClick={navigateToSpot}
-            className="mt-3 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 w-full rounded"
-          >
-            Navigate
-          </button>
+      {/* Nearest spot badge — only when there's an available spot */}
+      {nearestSpot ? (
+        <div className="absolute top-4 right-4 bg-white shadow-md px-3 py-2 rounded-xl z-40 text-sm text-gray-700 pointer-events-none">
+          <span className="text-green-500 font-semibold">Nearest available:</span>{" "}
+          Lot {nearestSpot.lotNumber}, Spot {nearestSpot.spotNumber}
         </div>
-      )}
+      ) : null}
     </div>
   );
 };

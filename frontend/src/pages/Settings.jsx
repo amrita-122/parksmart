@@ -1,22 +1,28 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
+
 export default function SettingsPage() {
   const [userData, setUserData] = useState({ name: "", email: "", phoneNumber: "" });
+  const [walletBalance, setWalletBalance] = useState(null);
   const [status, setStatus] = useState("");
   const token = localStorage.getItem("token");
+  const headers = { Authorization: `Bearer ${token}` };
 
   useEffect(() => {
     const fetchUserData = async () => {
       try {
-        const res = await axios.get("http://localhost:3000/app/settings", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const [profileRes, walletRes] = await Promise.all([
+          axios.get(`${API_URL}/app/settings`, { headers }),
+          axios.get(`${API_URL}/api/user/wallet`, { headers }),
+        ]);
         setUserData({
-          name: res.data.name,
-          email: res.data.email,
-          phoneNumber: res.data.phoneNumber,
+          name: profileRes.data.name,
+          email: profileRes.data.email,
+          phoneNumber: profileRes.data.phoneNumber,
         });
+        setWalletBalance(walletRes.data.walletBalance);
       } catch (err) {
         console.error("Failed to fetch user:", err);
         setStatus("Failed to load user data.");
@@ -27,28 +33,32 @@ export default function SettingsPage() {
 
   const handleSave = async () => {
     try {
-      const res = await axios.put(
-        "http://localhost:3000/app/settings",
-        { ...userData },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      setStatus("✅ Updated successfully!");
+      await axios.put(`${API_URL}/app/settings`, { ...userData }, { headers });
+      setStatus("Updated successfully!");
     } catch (err) {
       console.error("Update failed:", err);
-      setStatus("❌ Update failed.");
+      setStatus("Update failed.");
     }
   };
 
   const handleChange = (e) => {
-    setUserData((prev) => ({
-      ...prev,
-      [e.target.name]: e.target.value,
-    }));
+    setUserData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
   return (
     <div className="p-6 max-w-md mx-auto">
-      <h2 className="text-2xl font-bold mb-4">⚙️ Account Settings</h2>
+      <h2 className="text-2xl font-bold mb-4">Account Settings</h2>
+
+      {/* Wallet Balance Card */}
+      {walletBalance !== null && (
+        <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-center justify-between">
+          <div>
+            <p className="text-sm text-green-700 font-medium">Wallet Balance</p>
+            <p className="text-2xl font-bold text-green-800">${walletBalance.toFixed(2)}</p>
+          </div>
+          <div className="text-green-400 text-3xl">💳</div>
+        </div>
+      )}
 
       <label className="block mb-1">Name</label>
       <input
