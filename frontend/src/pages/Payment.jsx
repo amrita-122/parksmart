@@ -1,6 +1,7 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import { CardElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import axios from "axios";
+import { API_URL } from "../config";
 
 export default function Payment() {
   const { state } = useLocation();
@@ -13,10 +14,10 @@ export default function Payment() {
 
   const handleStripePayment = async () => {
     try {
-      // 1. Create payment intent
+      // 1. Create payment intent (the server prices it from the booked times)
       const { data: clientSecret } = await axios.post(
-        "http://localhost:3000/api/payment/create-intent",
-        { amount: amount * 100 },
+        `${API_URL}/api/payment/create-intent`,
+        { startTime, endTime },
         { headers: { Authorization: `Bearer ${token}` } }
       );
   
@@ -33,11 +34,9 @@ export default function Payment() {
   
       // 3. ✅ Save the payment to your DB FIRST
       await axios.post(
-        "http://localhost:3000/api/payment/checkout",
+        `${API_URL}/api/payment/checkout`,
         {
           reservationId: null,
-          amount,
-          paymentMethod: "credit_card",
           transactionId: paymentIntent.id,
         },
         { headers: { Authorization: `Bearer ${token}` } }
@@ -45,7 +44,7 @@ export default function Payment() {
   
       // 4. ✅ Now reserve the spot — payment will be found in Mongo
       await axios.post(
-        "http://localhost:3000/api/parking/reserve",
+        `${API_URL}/api/parking/reserve`,
         { spotId, startTime, endTime },
         { headers: { Authorization: `Bearer ${token}` } }
       );

@@ -7,10 +7,11 @@ import { Heading } from "../components/heading";
 import axios from "axios";
 import { GoogleLogin } from "@react-oauth/google";
 import { DialogBox } from "../components/DialogBox";
+import { API_URL } from "../config";
 
 const handleGoogleLogin = async (response) => {
   try {
-    const res = await axios.post("http://localhost:3000/api/auth/google", {
+    const res = await axios.post(`${API_URL}/api/auth/google`, {
       token: response.credential
     });
 
@@ -79,7 +80,7 @@ const [name, setName] = useState("");
     async () => {
       try{
     const response = await axios.post(
-      "http://localhost:3000/api/auth/sendotp",
+      `${API_URL}/api/auth/sendotp`,
       {
         name,
         password,

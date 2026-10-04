@@ -358,7 +358,8 @@ describe("POST /api/parking/reserve", () => {
       { new: true }
     );
     const [filter, update] = Payment.findOneAndUpdate.mock.calls[0];
-    expect(filter).toMatchObject({ userId: "user123", status: "completed", reservationId: null });
+    // The one-hour booking from times() must be paid for with exactly $5.
+    expect(filter).toMatchObject({ userId: "user123", amount: 5, status: "completed", reservationId: null });
     expect(update).toEqual({ reservationId: "r1" });
   });
 });

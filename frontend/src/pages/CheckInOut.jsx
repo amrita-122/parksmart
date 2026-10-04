@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
+import { API_URL } from "../config";
 
 export default function CheckInOut() {
   const [reservation, setReservation] = useState(null);
@@ -9,7 +10,7 @@ export default function CheckInOut() {
   useEffect(() => {
     const fetchCurrentReservation = async () => {
       try {
-        const res = await axios.get("http://localhost:3000/api/user/reservations", {
+        const res = await axios.get(`${API_URL}/api/user/reservations`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -36,7 +37,7 @@ export default function CheckInOut() {
   const handleCheckIn = async () => {
     try {
       await axios.post(
-        "http://localhost:3000/api/parking/checkin",
+        `${API_URL}/api/parking/checkin`,
         { reservationId: reservation._id },
         {
           headers: {
@@ -55,7 +56,7 @@ export default function CheckInOut() {
   const handleCheckOut = async () => {
     try {
       await axios.post(
-        "http://localhost:3000/api/parking/checkout",
+        `${API_URL}/api/parking/checkout`,
         { reservationId: reservation._id },
         {
           headers: {

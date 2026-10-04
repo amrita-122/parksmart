@@ -46,29 +46,40 @@ describe("JWT expiry", () => {
 });
 
 describe("POST /api/payment/create-intent", () => {
+  const HOUR = 60 * 60 * 1000;
+  const booking = (durationMs) => {
+    const start = Date.now();
+    return {
+      startTime: new Date(start).toISOString(),
+      endTime: new Date(start + durationMs).toISOString(),
+    };
+  };
+
   it("returns 401 without a token", async () => {
-    const res = await request(app).post("/api/payment/create-intent").send({ amount: 500 });
+    const res = await request(app).post("/api/payment/create-intent").send(booking(HOUR));
     expect(res.status).toBe(401);
   });
 
-  it.each([[0], [-5], ["abc"], [10], [10000000]])("rejects amount %p", async (amount) => {
-    const res = await request(app)
-      .post("/api/payment/create-intent")
-      .set(auth())
-      .send({ amount });
+  it.each([
+    ["no times", {}],
+    ["an invalid date", { startTime: "nope", endTime: "2030-01-01" }],
+    ["endTime before startTime", booking(-HOUR)],
+    ["a booking priced over the maximum", booking(300 * HOUR)],
+  ])("rejects %s", async (_name, body) => {
+    const res = await request(app).post("/api/payment/create-intent").set(auth()).send(body);
     expect(res.status).toBe(400);
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
-  it("creates an intent tagged with the user id and rounds float noise", async () => {
+  it("prices the intent from the duration and ignores a client amount", async () => {
     mockCreate.mockResolvedValue({ client_secret: "secret_123" });
     const res = await request(app)
       .post("/api/payment/create-intent")
       .set(auth())
-      .send({ amount: 7.000000000000001 * 100 });
+      .send({ ...booking(90 * 60 * 1000), amount: 50 }); // 90 min bills as 2 hours
     expect(res.status).toBe(200);
     expect(mockCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ amount: 700, metadata: { userId: "user123" } })
+      expect.objectContaining({ amount: 1000, metadata: { userId: "user123" } })
     );
   });
 });

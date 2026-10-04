@@ -2,7 +2,7 @@ import Maps from "../components/Maps";
 import { useEffect, useState } from "react";
 import axios from "axios";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
+import { API_URL } from "../config";
 
 export const Home = () => {
   const [nearestSpot, setNearestSpot] = useState(null);

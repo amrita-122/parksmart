@@ -7,12 +7,13 @@ import { Heading } from "../components/heading";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { GoogleLogin } from "@react-oauth/google";
+import { API_URL } from "../config";
 
 const handleSignIn = (email, pass, navigate) => {
   return async () => {
     console.log('Email:', email, 'Password:', pass);
     try {
-      const response = await axios.post("http://localhost:3000/api/auth/login", {
+      const response = await axios.post(`${API_URL}/api/auth/login`, {
         emailorPhone: email,
         password: pass,
       });
@@ -30,7 +31,7 @@ const handleSignIn = (email, pass, navigate) => {
 
 const handleGoogleLogin =async (response) =>{
   try{
-    const res  = await axios.post(("http://localhost:3000/api/auth/google"),{
+    const res  = await axios.post(`${API_URL}/api/auth/google`,{
     token:response.credential,
   })
   localStorage.setItem("token", res.data.token);

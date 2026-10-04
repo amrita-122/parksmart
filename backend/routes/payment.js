@@ -4,16 +4,23 @@ const router = express.Router();
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const authenticate = require("../middlewares/authenticate");
 const { Payment } = require("../models/payments");
+const { priceForDuration } = require("../utils/pricing");
 
 const MIN_CENTS = 50; // Stripe's minimum charge in USD
 const MAX_CENTS = 100000; // $1,000 per payment
 
 // Create Stripe PaymentIntent
 router.post("/create-intent", authenticate, async (req, res) => {
-  // The frontend sends dollars * 100, which can carry float noise (7.000000000000001)
-  const amount = Math.round(Number(req.body.amount));
+  // The price comes from the booked duration; any amount in the body is ignored.
+  const { startTime, endTime } = req.body;
+  const start = new Date(startTime);
+  const end = new Date(endTime);
+  if (!startTime || !endTime || isNaN(start) || isNaN(end) || end <= start) {
+    return res.status(400).json({ message: "Valid startTime and endTime are required" });
+  }
 
-  if (!Number.isInteger(amount) || amount < MIN_CENTS || amount > MAX_CENTS) {
+  const amount = priceForDuration(start, end) * 100; // cents
+  if (amount < MIN_CENTS || amount > MAX_CENTS) {
     return res.status(400).json({ message: "Invalid amount" });
   }
 

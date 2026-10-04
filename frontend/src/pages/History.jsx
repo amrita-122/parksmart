@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
+import { API_URL } from "../config";
 
 export default function History() {
   const [reservations, setReservations] = useState([]);
@@ -10,10 +11,10 @@ export default function History() {
     const fetchHistory = async () => {
       try {
         const [res1, res2] = await Promise.all([
-          axios.get("http://localhost:3000/api/user/reservations", {
+          axios.get(`${API_URL}/api/user/reservations`, {
             headers: { Authorization: `Bearer ${token}` },
           }),
-          axios.get("http://localhost:3000/api/user/payments", {
+          axios.get(`${API_URL}/api/user/payments`, {
             headers: { Authorization: `Bearer ${token}` },
           }),
         ]);

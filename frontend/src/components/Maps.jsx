@@ -13,7 +13,7 @@ import { io } from "socket.io-client";
 import { useNavigate } from "react-router-dom";
 
 const API_KEY = import.meta.env.VITE_MAPS_API;
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
+import { API_URL } from "../config";
 
 /* ═══════════════════════════════════════════════════════════
    Root component

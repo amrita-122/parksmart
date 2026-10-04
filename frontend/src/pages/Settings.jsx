@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
+import { API_URL } from "../config";
 
 export default function SettingsPage() {
   const [userData, setUserData] = useState({ name: "", email: "", phoneNumber: "" });

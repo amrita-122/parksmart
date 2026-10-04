@@ -2,6 +2,7 @@ import { Dialog, DialogBackdrop, DialogPanel, DialogTitle } from '@headlessui/re
 import { InputBox } from './InputBox';
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
+import { API_URL } from "../config";
 
 
 export const DialogBox = ({ show, onClose,otp, setOtp,name,
@@ -41,7 +42,7 @@ export const DialogBox = ({ show, onClose,otp, setOtp,name,
                 onClick={async () => {
                     try {
                       const response = await axios.post(
-                        "http://localhost:3000/api/auth/signup",
+                        `${API_URL}/api/auth/signup`,
                         {
                           name,
                           email,

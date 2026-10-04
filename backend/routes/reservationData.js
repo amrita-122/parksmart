@@ -6,7 +6,7 @@ const { ownsReservation } = require("../middlewares/authorize");
 const { Payment } = require("../models/payments");
 const User = require("../models/User");
 
-const RATE_PER_HOUR = 5; // $5/hr — matches frontend pricing
+const { RATE_PER_HOUR } = require("../utils/pricing");
 
 router.get("/reservations", authenticate, async (req, res) => {
   try {

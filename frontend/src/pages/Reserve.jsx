@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
+import { API_URL } from "../config";
 
 export default function Reserve() {
   const [spots, setSpots] = useState([]);
@@ -13,7 +14,7 @@ export default function Reserve() {
   useEffect(() => {
     const fetchSpots = async () => {
       try {
-        const res = await axios.get("http://localhost:3000/api/parking/all", {
+        const res = await axios.get(`${API_URL}/api/parking/all`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         setSpots(res.data.filter((s) => s.isAvailable));
@@ -44,7 +45,7 @@ export default function Reserve() {
     }
 
     const durationInHours = Math.ceil((new Date(endTime) - start) / (60 * 60 * 1000));
-    const amount = durationInHours * 5; // example: $5/hour
+    const amount = durationInHours * 5; // display only; the server computes the real price
 
     navigate("/payment", {
       state: {

@@ -89,11 +89,11 @@ Server structure: `backend/server.js` creates the HTTP server, initialises socke
 
 ### Payments
 
-- The frontend creates a Stripe Payment Intent via `POST /api/payment/create-intent` (amount in cents, USD).
+- The frontend creates a Stripe Payment Intent via `POST /api/payment/create-intent` by sending `startTime` and `endTime`. The server prices the booking itself ($5 per started hour, `utils/pricing.js`); any amount in the body is ignored.
 - The intent is tagged with the user's id and the amount must be between $0.50 and $1,000.
 - After the user confirms on the frontend, `POST /api/payment/checkout` records the payment. The server retrieves the PaymentIntent from Stripe and only saves it if it has `succeeded`, belongs to the same user and has not been recorded before. The stored amount is the one Stripe reports; the `amount` sent by the client is ignored.
 - Supported payment methods in the schema: `credit_card`, `debit_card`, `paypal`, `bank_transfer`. Only card payments are created today, so the checkout route always records `credit_card`.
-- A completed, unused payment is required before a reservation can be made.
+- A completed, unused payment whose amount equals the server price for the booked duration is required before a reservation can be made.
 
 ### IoT Sensor Bridge
 
@@ -247,7 +247,7 @@ timestamp  Date
 
 | Method | Path | Description | Auth required |
 |--------|------|-------------|---------------|
-| POST | `/create-intent` | Creates a Stripe PaymentIntent, returns client_secret | Yes |
+| POST | `/create-intent` | Creates a Stripe PaymentIntent priced from `startTime`/`endTime`, returns client_secret | Yes |
 | POST | `/checkout` | Verifies the PaymentIntent with Stripe, then saves the payment (`transactionId` required; the amount comes from Stripe) | Yes |
 
 ### User — `/api/user`
@@ -358,7 +358,7 @@ VITE_MAPS_API=
 VITE_STRIPE_PUBLIC_KEY=
 ```
 
-`VITE_API_URL` is read by the map, home, admin and settings pages. Several older files (sign in/up, reserve, payment, check in/out, history) still hardcode `http://localhost:3000`, so change both until they are migrated.
+`VITE_API_URL` is read once in `frontend/src/config.js` and used by every page. It falls back to `http://localhost:3000` when unset.
 
 ---
 
@@ -375,12 +375,10 @@ VITE_STRIPE_PUBLIC_KEY=
 Current gaps that are worth fixing before a real deployment:
 
 - Claiming a spot in `/api/parking/reserve` is atomic, so two users booking the same spot at the same moment can no longer both succeed. Overlap checks for the same user or spot are still Planned (see Reservations).
-- Payments are matched to reservations by user, not by price, so a cheap payment can still claim a longer booking. Pricing should be computed on the server from the booked duration.
 - There is no refresh-token flow and tokens cannot be revoked before they expire. The token is kept in `localStorage`.
 - The redirect-based Google login (`GET /api/auth/google` and its callback) is not working: the Passport verify callback in `config/passport.js` has the wrong argument order and a relative `callbackURL`. The frontend uses the ID-token flow (`POST /api/auth/google`), which does work.
 - No request-body schema validation beyond the checks in each route, no `helmet` headers, and the rate limit only covers `/api/auth`.
 - The wallet credit endpoint exists but the Check In/Out page does not use it.
-- The frontend still hardcodes `http://localhost:3000` in many files (see Environment Variables).
 
 ---
 

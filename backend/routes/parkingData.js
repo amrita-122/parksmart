@@ -5,6 +5,7 @@ const authenticate = require("../middlewares/authenticate");
 const { requireAdmin, requireDeviceKey, ownsReservation } = require("../middlewares/authorize");
 const { Payment } = require("../models/payments");
 const { getIO } = require("../socket");
+const { priceForDuration } = require("../utils/pricing");
 
 router.post("/add", authenticate, requireAdmin, async (req, res) => {
   try {
@@ -99,16 +100,16 @@ router.post("/reserve", authenticate, async (req, res) => {
       );
 
     // One payment pays for one reservation: claim an unused completed payment
-    // (reservationId still null) instead of accepting any payment ever made.
+    // (reservationId still null) whose amount matches the booked duration.
     const reservation = new Reservation({ userId, spotId, startTime, endTime, status: "reserved" });
     const payment = await Payment.findOneAndUpdate(
-      { userId, amount: { $gt: 0 }, status: "completed", reservationId: null },
+      { userId, amount: priceForDuration(start, end), status: "completed", reservationId: null },
       { reservationId: reservation._id },
       { sort: { timestamp: 1 } }
     );
     if (!payment) {
       await releaseSpot();
-      return res.status(403).json({ message: "Please complete a payment before reserving." });
+      return res.status(403).json({ message: "Please complete a payment for this booking before reserving." });
     }
 
     try {
