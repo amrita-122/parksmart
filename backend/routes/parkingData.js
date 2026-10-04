@@ -8,6 +8,7 @@ const User = require("../models/User");
 const { getIO } = require("../socket");
 const { priceForDuration } = require("../utils/pricing");
 const { findOverlappingReservation } = require("../utils/overlap");
+const { completeWithCredit } = require("../utils/checkoutCredit");
 
 router.post("/add", authenticate, requireAdmin, async (req, res) => {
   try {
@@ -59,6 +60,9 @@ router.get("/all", async (_req, res) => {
 });
 
 const START_GRACE_MS = 10 * 60 * 1000;
+// A car on a reserved spot is only a violation once the booking has started and the
+// holder has had this long to check in.
+const VIOLATION_GRACE_MS = 5 * 60 * 1000;
 
 router.post("/reserve", authenticate, async (req, res) => {
   try {
@@ -271,6 +275,30 @@ router.post("/update-status", requireDeviceKey, async (req, res) => {
   }
 
   try {
+    const existing = await ParkingSpot.findOne({ spotNumber });
+    if (existing) {
+      if (isAvailable) {
+        // The car left while a user was checked in: end the booking and credit
+        // the unused time, exactly like a manual check-out with credit.
+        const checkedIn = await Reservation.findOne({ spotId: existing._id, status: "checked-in" });
+        if (checkedIn) {
+          const result = await completeWithCredit(checkedIn);
+          if (result) {
+            return res.json({ success: true, updated: result.spot, walletCredit: result.walletCredit });
+          }
+        }
+      } else {
+        // A car is on the spot but its holder never checked in.
+        const unclaimed = await Reservation.findOne({ spotId: existing._id, status: "reserved" });
+        if (unclaimed && Date.now() - new Date(unclaimed.startTime).getTime() > VIOLATION_GRACE_MS) {
+          unclaimed.status = "violated";
+          await unclaimed.save();
+          // Release the hold so the spot frees normally when the car leaves.
+          await ParkingSpot.findOneAndUpdate({ _id: existing._id }, { reservedBy: null, occupiedBy: null });
+        }
+      }
+    }
+
     // A sensor "available" report must not free a spot someone has reserved.
     const filter = isAvailable ? { spotNumber, reservedBy: null } : { spotNumber };
     const spot = await ParkingSpot.findOneAndUpdate(filter, { isAvailable }, { new: true });

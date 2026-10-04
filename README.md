@@ -77,7 +77,7 @@ Server structure: `backend/server.js` creates the HTTP server, initialises socke
   - The user has no other active (`reserved` or `checked-in`) reservation whose time range overlaps this one (409). `POST /api/payment/create-intent` runs the same check so the user is not charged for a booking that would be rejected. Back-to-back bookings are allowed. Two bookings can never share a spot, because the spot is claimed with one conditional write. Known race: two simultaneous requests from the same user for different spots can both pass, since the check is a read followed by a write.
   - The user has a completed payment that has not been used yet. Each payment covers exactly one reservation: the reservation claims it, so one payment cannot be reused for unlimited bookings.
 - A successful reservation marks the spot unavailable (`reservedBy` is set) and broadcasts a `spot:updated` socket event.
-- Reservation statuses: `reserved` → `checked-in` → `completed`, or `reserved` → `cancelled`.
+- Reservation statuses: `reserved` → `checked-in` → `completed`, `reserved` → `cancelled`, or `reserved` → `violated` (set by the sensor, see IoT Sensor Bridge).
 - Check-in (`POST /api/parking/checkin`) moves a `reserved` reservation to `checked-in`, sets the spot's `occupiedBy` to the user and broadcasts `spot:updated`. Check-in, check-out, checkout-credit and cancel only work on the logged-in user's own reservations (403 otherwise).
 - Check-out (`POST /api/parking/checkout`) moves a `checked-in` reservation to `completed`, makes the spot available again (clearing `occupiedBy`) and broadcasts `spot:updated`. `POST /api/user/checkout-credit` does the same and also credits unused time to the wallet (see Wallet).
 - Cancelling (`DELETE /api/user/cancel/:id`) is only allowed before check-in. It frees the spot, broadcasts `spot:updated` and keeps the reservation with status `cancelled` so history and the admin view still show it. Cancelling does not refund the payment.
@@ -92,16 +92,18 @@ Server structure: `backend/server.js` creates the HTTP server, initialises socke
 
 ### IoT Sensor Bridge
 
-`backend/bridge.js` reads lines from an Arduino over serial port COM5 at 9600 baud. It expects either `"occupied"` or `"available"` from the Arduino.
+`backend/bridge.js` reads lines from an Arduino over a serial port (default COM5 at 9600 baud). It expects either `"occupied"` or `"available"` from the Arduino and ignores any other line.
 
-On each reading it calls `POST /api/parking/update-status` with the `spotNumber` (hardcoded to `"11"` in bridge.js) and the parsed `isAvailable` boolean. The request carries an `x-device-key` header taken from `DEVICE_API_KEY` in `backend/.env`; the backend compares it with its own `DEVICE_API_KEY` and rejects anything else (and rejects everything if the key is not configured). Generate a long random value, for example `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
+On each reading it calls `POST /api/parking/update-status` with the `spotNumber` (default `"11"`) and the parsed `isAvailable` boolean. The request carries an `x-device-key` header taken from `DEVICE_API_KEY` in `backend/.env`; the backend compares it with its own `DEVICE_API_KEY` and rejects anything else (and rejects everything if the key is not configured). Generate a long random value, for example `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
 
 **Current behavior:** the backend sets `isAvailable` on the matching spot and broadcasts a `spot:updated` socket event so open maps update live. It returns 404 if the spot number does not exist. An `available` report is ignored (200 with `ignored: true`, no broadcast) while the spot is reserved, so the sensor cannot free a spot someone has booked; an `occupied` report is always applied. A reserved spot is freed only by check-out, checkout-credit or cancel.
 
-**Planned (not yet implemented):**
-- If the sensor says occupied but no user has checked in: mark any active reservation for that spot as `"violated"` (this status does not exist in the schema yet).
-- If the sensor says available but a user is checked in: calculate the unused minutes, add them to the user's wallet, and mark the reservation as completed.
-- Make the serial port and spot number configurable instead of hardcoded.
+**Reservation rules driven by the sensor** (covered by unit tests; not yet verified against real hardware):
+
+- **Occupied, nobody checked in:** if a `reserved` reservation exists for the spot and its `startTime` was more than 5 minutes ago, it is marked `violated` and the spot's hold (`reservedBy`) is released so the spot frees normally when the car leaves. A booking that has not started, or started less than 5 minutes ago, is left alone so the holder can park and check in. A violation does not refund the payment.
+- **Available, user checked in:** the reservation is completed, the unused minutes are credited to the user's wallet at $5 per hour and the spot is freed, exactly like `POST /api/user/checkout-credit`. Both paths share `utils/checkoutCredit.js`, which claims the `checked-in` to `completed` change atomically so a manual check-out and a sensor report cannot credit twice.
+
+**Bridge settings** (all optional, in `backend/.env`): `SERIAL_PORT` (default `COM5`), `BAUD_RATE` (default `9600`), `SPOT_NUMBER` (default `11`, must exist in the database) and `BRIDGE_API_URL` (default `http://localhost:3000`).
 
 ### Admin
 
@@ -319,7 +321,7 @@ npm run lint         # ESLint
 npm run build        # production build
 ```
 
-**IoT Bridge (optional — requires Arduino on COM5)**
+**IoT Bridge (optional — requires an Arduino, COM5 by default)**
 ```bash
 cd backend
 node bridge.js
@@ -337,6 +339,7 @@ JWT_EXPIRES_IN=1d                  # optional: lifetime of every issued token (d
 GOOGLE_CALLBACK_URL=http://localhost:3000/api/auth/google/callback  # optional: redirect-flow callback; must be an authorized redirect URI in Google Cloud
 TRUST_PROXY=1                      # optional: number of reverse-proxy hops, so rate limits use the real client IP
 DEVICE_API_KEY=                    # shared secret for the Arduino bridge; sensor updates are rejected without it
+SERIAL_PORT=COM5                   # optional, bridge only: serial port (also BAUD_RATE, SPOT_NUMBER, BRIDGE_API_URL)
 SEED_ADMIN_PASSWORD=               # optional: password for node seed.js (random if unset)
 PORT=3000
 CLIENT_URL=http://localhost:5173   # CORS and socket.io origin (this is the default)

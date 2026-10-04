@@ -207,6 +207,7 @@ describe("POST /api/user/checkout-credit ownership", () => {
       endTime: inThirtyMin, save: jest.fn().mockResolvedValue(undefined),
     };
     Reservation.findById = jest.fn().mockResolvedValue(reservation);
+    Reservation.findOneAndUpdate = jest.fn().mockResolvedValue({ _id: "r1" });
     ParkingSpot.findByIdAndUpdate = jest.fn().mockResolvedValue({ _id: "s1", isAvailable: true });
     User.findByIdAndUpdate = jest.fn().mockResolvedValue(null);
 
@@ -218,7 +219,24 @@ describe("POST /api/user/checkout-credit ownership", () => {
     expect(User.findByIdAndUpdate).toHaveBeenCalledWith("user123", {
       $inc: { walletBalance: res.body.walletCredit },
     });
-    expect(reservation.status).toBe("completed");
+    expect(Reservation.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: "r1", status: "checked-in" },
+      { status: "completed" }
+    );
+  });
+
+  it("does not credit twice when another request already completed the reservation", async () => {
+    Reservation.findById = jest.fn().mockResolvedValue({
+      _id: "r1", userId: "user123", spotId: "s1", status: "checked-in",
+      endTime: new Date(Date.now() + 30 * 60 * 1000),
+    });
+    Reservation.findOneAndUpdate = jest.fn().mockResolvedValue(null); // lost the race
+    User.findByIdAndUpdate = jest.fn();
+
+    const res = await request(app).post("/api/user/checkout-credit").set(auth()).send({ reservationId: "r1" });
+
+    expect(res.status).toBe(400);
+    expect(User.findByIdAndUpdate).not.toHaveBeenCalled();
   });
 });
 

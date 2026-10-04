@@ -7,7 +7,7 @@ const { Payment } = require("../models/payments");
 const User = require("../models/User");
 const { getIO } = require("../socket");
 
-const { RATE_PER_HOUR } = require("../utils/pricing");
+const { completeWithCredit } = require("../utils/checkoutCredit");
 
 router.get("/reservations", authenticate, async (req, res) => {
   try {
@@ -81,33 +81,14 @@ router.post("/checkout-credit", authenticate, async (req, res) => {
       return res.status(403).json({ message: "Forbidden" });
     }
 
-    const now = new Date();
-    const endTime = new Date(reservation.endTime);
-    let walletCredit = 0;
-
-    if (now < endTime) {
-      const unusedMinutes = (endTime - now) / (1000 * 60);
-      walletCredit = parseFloat(((unusedMinutes / 60) * RATE_PER_HOUR).toFixed(2));
+    const result = await completeWithCredit(reservation);
+    if (!result) {
+      return res.status(400).json({ message: "Invalid reservation!" });
     }
-
-    reservation.status = "completed";
-    await reservation.save();
-
-    const updatedSpot = await ParkingSpot.findByIdAndUpdate(
-      reservation.spotId,
-      { isAvailable: true, reservedBy: null, occupiedBy: null },
-      { new: true }
-    );
-
-    if (walletCredit > 0) {
-      await User.findByIdAndUpdate(req.user.id, { $inc: { walletBalance: walletCredit } });
-    }
-
-    getIO().emit("spot:updated", updatedSpot);
 
     res.status(200).json({
       message: "Checked out successfully!",
-      walletCredit,
+      walletCredit: result.walletCredit,
     });
   } catch (error) {
     res.status(500).json({ message: "Internal Server Error", error: error.message });

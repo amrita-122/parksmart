@@ -22,7 +22,7 @@ Auth middleware is `middlewares/authenticate.js`. Most routes do not use it yet;
 - **Signup:** `POST /api/auth/sendotp` emails an OTP via Gmail OAuth2 (`utils/mailSender.js`). `POST /signup` verifies it, hashes the password with bcrypt and returns a JWT.
 - **Reservation:** the client creates a Stripe intent (`/api/payment/create-intent`), confirms it, then calls `/api/payment/checkout`. After that `POST /api/parking/reserve` requires a completed payment, a start time within 20 minutes and an available spot. It marks the spot unavailable.
 - **Check-in/out:** `/api/parking/checkin` and `/checkout`. `/api/user/checkout-credit` credits `User.walletBalance` at $5/hour for unused time.
-- **IoT:** `bridge.js` reads `occupied`/`available` from serial and POSTs `/api/parking/update-status`. That route only sets `isAvailable` and emits, and it ignores `available` reports for reserved spots (`reservedBy` set). The violation/wallet logic in the README is not implemented.
+- **IoT:** `bridge.js` reads `occupied`/`available` from serial and POSTs `/api/parking/update-status`. That route sets `isAvailable` and emits, ignores `available` reports for reserved spots (`reservedBy` set), marks an unclaimed reservation `violated` when the spot is occupied 5+ minutes after `startTime`, and completes a checked-in reservation with wallet credit (`utils/checkoutCredit.js`) when the spot becomes available. Unit-tested only, not verified on hardware.
 
 ## Socket contract
 `socket.js` exports `init(httpServer)` and an emitter. The `spot:updated` event is emitted on reserve and update-status. `frontend/src/components/Maps.jsx` subscribes to it. Keep the payload shape stable.
@@ -34,4 +34,4 @@ Auth middleware is `middlewares/authenticate.js`. Most routes do not use it yet;
 Jest + supertest, matching `**/__tests__/**/*.test.js`. Tests mock the models, `socket`, `config/db` and `config/passport`, so they never touch a real database. Follow that pattern and add a test when you add a route. Run `npm test` from `backend/`.
 
 ## bridge.js
-A standalone script that is not started by the server. It hardcodes Windows port `COM5`, 9600 baud, spot `"11"` and `http://localhost:3000`. It uses the native `serialport` module.
+A standalone script that is not started by the server. Port, baud rate, spot and API URL come from `SERIAL_PORT`, `BAUD_RATE`, `SPOT_NUMBER`, `BRIDGE_API_URL` (defaults `COM5`, 9600, `"11"`, `http://localhost:3000`). It uses the native `serialport` module.

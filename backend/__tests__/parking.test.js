@@ -181,6 +181,100 @@ describe("POST /api/parking/update-status", () => {
     expect(mockEmit).toHaveBeenCalledWith("spot:updated", updatedSpot);
   });
 
+  describe("sensor-driven reservation changes", () => {
+    const MIN = 60 * 1000;
+    const spot = { _id: "s1", spotNumber: "11" };
+
+    beforeEach(() => {
+      ParkingSpot.findOne = jest.fn().mockResolvedValue(spot);
+      ParkingSpot.findOneAndUpdate = jest.fn().mockResolvedValue({ ...spot, isAvailable: false });
+      Reservation.findOne = jest.fn().mockResolvedValue(null);
+      mockEmit.mockClear();
+    });
+
+    afterAll(() => {
+      ParkingSpot.findOne = jest.fn();
+      Reservation.findOne = jest.fn();
+    });
+
+    it("marks a reservation violated when a car sits on it, unclaimed, past the grace period", async () => {
+      const reservation = {
+        status: "reserved",
+        startTime: new Date(Date.now() - 10 * MIN),
+        save: jest.fn().mockResolvedValue(undefined),
+      };
+      Reservation.findOne = jest.fn().mockResolvedValue(reservation);
+
+      const res = await send({ spotNumber: "11", isAvailable: false });
+
+      expect(res.status).toBe(200);
+      expect(Reservation.findOne).toHaveBeenCalledWith({ spotId: "s1", status: "reserved" });
+      expect(reservation.status).toBe("violated");
+      expect(reservation.save).toHaveBeenCalled();
+      expect(ParkingSpot.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: "s1" },
+        { reservedBy: null, occupiedBy: null }
+      );
+    });
+
+    it.each([
+      ["has not started yet", 10 * MIN],
+      ["started less than the grace period ago", -2 * MIN],
+    ])("does not flag a reservation that %s", async (_name, startOffset) => {
+      const reservation = {
+        status: "reserved",
+        startTime: new Date(Date.now() + startOffset),
+        save: jest.fn(),
+      };
+      Reservation.findOne = jest.fn().mockResolvedValue(reservation);
+
+      await send({ spotNumber: "11", isAvailable: false });
+
+      expect(reservation.status).toBe("reserved");
+      expect(reservation.save).not.toHaveBeenCalled();
+    });
+
+    it("credits unused time and completes the booking when the car leaves a checked-in spot", async () => {
+      const checkedIn = {
+        _id: "r1", userId: "user123", spotId: "s1", status: "checked-in",
+        endTime: new Date(Date.now() + 30 * MIN),
+      };
+      Reservation.findOne = jest.fn().mockResolvedValue(checkedIn);
+      Reservation.findOneAndUpdate = jest.fn().mockResolvedValue({ _id: "r1" });
+      ParkingSpot.findByIdAndUpdate = jest.fn().mockResolvedValue({ ...spot, isAvailable: true });
+      User.findByIdAndUpdate = jest.fn().mockResolvedValue(null);
+
+      const res = await send({ spotNumber: "11", isAvailable: true });
+
+      expect(res.status).toBe(200);
+      expect(res.body.walletCredit).toBeGreaterThan(2.4); // ~30 min at $5/hr
+      expect(Reservation.findOne).toHaveBeenCalledWith({ spotId: "s1", status: "checked-in" });
+      expect(Reservation.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: "r1", status: "checked-in" },
+        { status: "completed" }
+      );
+      expect(User.findByIdAndUpdate).toHaveBeenCalledWith("user123", {
+        $inc: { walletBalance: res.body.walletCredit },
+      });
+      expect(mockEmit).toHaveBeenCalledWith("spot:updated", expect.objectContaining({ isAvailable: true }));
+    });
+
+    it("credits nothing when the booking has already ended", async () => {
+      Reservation.findOne = jest.fn().mockResolvedValue({
+        _id: "r1", userId: "user123", spotId: "s1", status: "checked-in",
+        endTime: new Date(Date.now() - 5 * MIN),
+      });
+      Reservation.findOneAndUpdate = jest.fn().mockResolvedValue({ _id: "r1" });
+      ParkingSpot.findByIdAndUpdate = jest.fn().mockResolvedValue({ ...spot, isAvailable: true });
+      User.findByIdAndUpdate = jest.fn();
+
+      const res = await send({ spotNumber: "11", isAvailable: true });
+
+      expect(res.body.walletCredit).toBe(0);
+      expect(User.findByIdAndUpdate).not.toHaveBeenCalled();
+    });
+  });
+
   it("always applies an 'occupied' report, even for a reserved spot", async () => {
     ParkingSpot.findOneAndUpdate = jest.fn().mockResolvedValue({ _id: "s1", isAvailable: false });
     await send({ spotNumber: "11", isAvailable: false });

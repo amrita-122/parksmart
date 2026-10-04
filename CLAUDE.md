@@ -12,12 +12,12 @@ Frontend (`frontend/`): `npm run dev | build | lint | preview`. There are no fro
 CI (`.github/workflows/ci.yml`, Node 20): backend `npm test`, frontend `npm run lint` + `npm run build`. Run the matching commands before finishing a change.
 
 ## Environment variables (no `.env.example`; `.env` files are gitignored, never print or commit them)
-Backend: `MongoDB_URL` (config/db.js; exact casing), `PORT`, `JWT_SECRET`, `CLIENT_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `REDIRECT_URI`, `REFRESH_TOKEN`, `GMAIL_USER`, `STRIPE_SECRET_KEY`, `DEVICE_API_KEY` (Arduino bridge shared secret), plus optional `JWT_EXPIRES_IN` (default 1d), `SEED_ADMIN_PASSWORD`, `TRUST_PROXY` (proxy hop count) and `GOOGLE_CALLBACK_URL` (redirect-flow callback). The server exits at startup without `JWT_SECRET`.
+Backend: `MongoDB_URL` (config/db.js; exact casing), `PORT`, `JWT_SECRET`, `CLIENT_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `REDIRECT_URI`, `REFRESH_TOKEN`, `GMAIL_USER`, `STRIPE_SECRET_KEY`, `DEVICE_API_KEY` (Arduino bridge shared secret), plus optional `JWT_EXPIRES_IN` (default 1d), `SEED_ADMIN_PASSWORD`, bridge-only `SERIAL_PORT`/`BAUD_RATE`/`SPOT_NUMBER`/`BRIDGE_API_URL`, `TRUST_PROXY` (proxy hop count) and `GOOGLE_CALLBACK_URL` (redirect-flow callback). The server exits at startup without `JWT_SECRET`.
 Frontend: `VITE_API_URL`, `VITE_MAPS_API`, `VITE_STRIPE_PUBLIC_KEY`, `VITE_GOOGLE_CLIENT_ID`.
 The code, `seed.js`, the README and CI now all use these names. Keep the backend `MongoDB_URL` casing exactly; it is easy to "correct" by mistake.
 
 ## Pitfalls
-- The README keeps unbuilt features (overlap checks, IoT violations, etc.) under "Planned" headings. Keep them there; do not delete planned features, and move them out of "Planned" only when implemented.
+- The README keeps unbuilt features (whatever is still listed there) under "Planned" headings. Keep them there; do not delete planned features, and move them out of "Planned" only when implemented.
 - The tests mock `config/passport`, `config/db`, `socket` and the models, so a passing `npm test` does not prove the server boots. Start it with `npm start` to check.
 - `npm audit` is clean for the backend as of the hardening pass. Removed unused `two-step-auth`; upgraded `nodemailer`, `googleapis` and `google-auth-library` to current majors. Re-run `npm audit` after dependency changes.
 - Never hand-edit `package-lock.json`.
