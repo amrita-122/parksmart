@@ -334,6 +334,7 @@ node bridge.js
 MongoDB_URL=
 JWT_SECRET=                        # required: the server refuses to start without it
 JWT_EXPIRES_IN=1d                  # optional: lifetime of every issued token (default 1d)
+GOOGLE_CALLBACK_URL=http://localhost:3000/api/auth/google/callback  # optional: redirect-flow callback; must be an authorized redirect URI in Google Cloud
 TRUST_PROXY=1                      # optional: number of reverse-proxy hops, so rate limits use the real client IP
 DEVICE_API_KEY=                    # shared secret for the Arduino bridge; sensor updates are rejected without it
 SEED_ADMIN_PASSWORD=               # optional: password for node seed.js (random if unset)
@@ -373,7 +374,7 @@ Current gaps that are worth fixing before a real deployment:
 
 - Claiming a spot in `/api/parking/reserve` is atomic, so two users booking the same spot at the same moment can no longer both succeed. Overlap checks for the same user are in place (see Reservations).
 - There is no refresh-token flow and tokens cannot be revoked before they expire. The token is kept in `localStorage`.
-- The redirect-based Google login (`GET /api/auth/google` and its callback) is not working: the Passport verify callback in `config/passport.js` has the wrong argument order and a relative `callbackURL`. The frontend uses the ID-token flow (`POST /api/auth/google`), which does work.
+- The redirect-based Google login (`GET /api/auth/google` and its callback) is fixed and tested, but the frontend still signs in with the ID-token flow (`POST /api/auth/google`) and has no button for the redirect flow. It has no OAuth `state` check because there is no session store.
 - No request-body schema validation beyond the checks in each route. Rate limits are per IP and in memory, so they reset on restart and are not shared across instances.
 
 ---

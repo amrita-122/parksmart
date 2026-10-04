@@ -12,7 +12,7 @@ Frontend (`frontend/`): `npm run dev | build | lint | preview`. There are no fro
 CI (`.github/workflows/ci.yml`, Node 20): backend `npm test`, frontend `npm run lint` + `npm run build`. Run the matching commands before finishing a change.
 
 ## Environment variables (no `.env.example`; `.env` files are gitignored, never print or commit them)
-Backend: `MongoDB_URL` (config/db.js; exact casing), `PORT`, `JWT_SECRET`, `CLIENT_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `REDIRECT_URI`, `REFRESH_TOKEN`, `GMAIL_USER`, `STRIPE_SECRET_KEY`, `DEVICE_API_KEY` (Arduino bridge shared secret), plus optional `JWT_EXPIRES_IN` (default 1d), `SEED_ADMIN_PASSWORD` and `TRUST_PROXY` (proxy hop count). The server exits at startup without `JWT_SECRET`.
+Backend: `MongoDB_URL` (config/db.js; exact casing), `PORT`, `JWT_SECRET`, `CLIENT_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `REDIRECT_URI`, `REFRESH_TOKEN`, `GMAIL_USER`, `STRIPE_SECRET_KEY`, `DEVICE_API_KEY` (Arduino bridge shared secret), plus optional `JWT_EXPIRES_IN` (default 1d), `SEED_ADMIN_PASSWORD`, `TRUST_PROXY` (proxy hop count) and `GOOGLE_CALLBACK_URL` (redirect-flow callback). The server exits at startup without `JWT_SECRET`.
 Frontend: `VITE_API_URL`, `VITE_MAPS_API`, `VITE_STRIPE_PUBLIC_KEY`, `VITE_GOOGLE_CLIENT_ID`.
 The code, `seed.js`, the README and CI now all use these names. Keep the backend `MongoDB_URL` casing exactly; it is easy to "correct" by mistake.
 
@@ -30,4 +30,4 @@ The code, `seed.js`, the README and CI now all use these names. Keep the backend
 - Take the user from `req.user.id`, never from the request body. Sign tokens only with `utils/token.js` `signToken` so they expire.
 - Payments are verified against Stripe in `/api/payment/checkout`; the stored amount comes from Stripe. Each payment is claimed by one reservation in `/api/parking/reserve`.
 - Never return password hashes (`.select("-password")` or strip them) and never log secrets or connection strings.
-- Open gaps (see README "Known Limitations"): no refresh tokens, the redirect-based Google login (`GET /api/auth/google`) is broken, rate limits are per-IP and in memory.
+- Open gaps (see README "Known Limitations"): no refresh tokens, the redirect-based Google login (`GET /api/auth/google`) works but the frontend does not use it and it has no OAuth `state`, rate limits are per-IP and in memory.

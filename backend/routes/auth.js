@@ -10,19 +10,21 @@ router.post("/signup", authControllers.signup)
 router.post("/sendotp",otpcontrollers.sendOTP );
 router.post("/login",authControllers.login );
 
+// Redirect-based Google login. No express-session, so both legs use session: false.
 router.get(
   "/google",
-  passport.authenticate("google", { scope: ["profile", "email"] })
+  passport.authenticate("google", { scope: ["profile", "email"], session: false })
 );
 
-router.get(
-  "/google/callback",
-  passport.authenticate("google", { failureRedirect: "/login" }),
-  (req, res) => {
-    const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
-    res.redirect(`${clientUrl}/?token=${req.user.token}`);
-  }
-);
+router.get("/google/callback", (req, res, next) => {
+  const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
+  passport.authenticate("google", { session: false }, (err, user) => {
+    if (err || !user) return res.redirect(`${clientUrl}/signin`);
+    // The token goes in the URL fragment, which browsers never send to servers
+    // or include in Referer headers, unlike a query string.
+    res.redirect(`${clientUrl}/auth/google/callback#token=${encodeURIComponent(user.token)}`);
+  })(req, res, next);
+});
 
 router.post("/google", async (req, res) => {
   try {
