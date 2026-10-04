@@ -384,6 +384,7 @@ Current gaps that are worth fixing before a real deployment:
 - Claiming a spot in `/api/parking/reserve` is atomic, so two users booking the same spot at the same moment can no longer both succeed. Overlap checks for the same user are in place (see Reservations).
 - There is no refresh-token flow and tokens cannot be revoked before they expire. The token is kept in `localStorage`.
 - The redirect-based Google login (`GET /api/auth/google` and its callback) is fixed and tested, but the frontend still signs in with the ID-token flow (`POST /api/auth/google`) and has no button for the redirect flow. It has no OAuth `state` check because there is no session store.
+- Frontend dev tooling has 5 high `npm audit` findings that come through Tailwind 3 (`braces`) and only affect the build machine; the shipped dependencies are clean. Fixing them means migrating to Tailwind 4.
 - Request validation is hand-written per route (`utils/validate.js`), not a schema library. Rate limits are per IP and in memory, so they reset on restart and are not shared across instances.
 
 ---

@@ -9,6 +9,10 @@ ESLint 9 flat config (`eslint.config.js`): recommended + react-hooks + react-ref
 ## API base URL
 Import `API_URL` from `src/config.js` (reads `VITE_API_URL`, falls back to `http://localhost:3000`). Do not hardcode the host.
 
+## Tooling notes
+- The Tailwind config is `tailwind.config.cjs` (CommonJS). The package is `"type": "module"`, so a `.js` config that uses `module.exports` fails to load on newer Node versions.
+- `npm audit --omit=dev` is clean. The remaining dev-only findings come from Tailwind 3's dependency chain.
+
 ## Other env vars
 `VITE_MAPS_API` (Google Maps), `VITE_STRIPE_PUBLIC_KEY` and `VITE_GOOGLE_CLIENT_ID` (read in `main.jsx`). CI builds with a differently named `VITE_STRIPE_KEY`, so the build passes without validating these.
 

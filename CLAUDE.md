@@ -19,7 +19,7 @@ The code, `seed.js`, the README and CI now all use these names. Keep the backend
 ## Pitfalls
 - The README keeps unbuilt features (whatever is still listed there) under "Planned" headings. Keep them there; do not delete planned features, and move them out of "Planned" only when implemented.
 - The tests mock `config/passport`, `config/db`, `socket` and the models, so a passing `npm test` does not prove the server boots. Start it with `npm start` to check.
-- `npm audit` is clean for the backend as of the hardening pass. Removed unused `two-step-auth`; upgraded `nodemailer`, `googleapis` and `google-auth-library` to current majors. Re-run `npm audit` after dependency changes.
+- `npm audit` is clean for the backend and for the frontend's runtime dependencies (`npm audit --omit=dev`). 5 high findings remain in the frontend dev tooling: they all come through Tailwind 3 (`braces`), and the only fix is a breaking move to Tailwind 4. Do not run `npm audit fix --force` without planning that migration. Removed unused `two-step-auth`; upgraded `nodemailer`, `googleapis` and `google-auth-library` to current majors. Re-run `npm audit` after dependency changes.
 - Never hand-edit `package-lock.json`.
 - The repo is on OneDrive. Exclude `node_modules` from recursive searches.
 - There is no `.gitattributes` or Prettier config, so expect CRLF warnings. Do not mass-reformat (indentation is mixed); match the surrounding file's style.
