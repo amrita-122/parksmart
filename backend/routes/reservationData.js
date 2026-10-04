@@ -5,6 +5,7 @@ const authenticate = require("../middlewares/authenticate");
 const { ownsReservation } = require("../middlewares/authorize");
 const { Payment } = require("../models/payments");
 const User = require("../models/User");
+const { getIO } = require("../socket");
 
 const { RATE_PER_HOUR } = require("../utils/pricing");
 
@@ -84,14 +85,17 @@ router.post("/checkout-credit", authenticate, async (req, res) => {
     reservation.status = "completed";
     await reservation.save();
 
-    await ParkingSpot.findByIdAndUpdate(reservation.spotId, {
-      isAvailable: true,
-      reservedBy: null,
-    });
+    const updatedSpot = await ParkingSpot.findByIdAndUpdate(
+      reservation.spotId,
+      { isAvailable: true, reservedBy: null },
+      { new: true }
+    );
 
     if (walletCredit > 0) {
       await User.findByIdAndUpdate(req.user.id, { $inc: { walletBalance: walletCredit } });
     }
+
+    getIO().emit("spot:updated", updatedSpot);
 
     res.status(200).json({
       message: "Checked out successfully!",

@@ -177,6 +177,27 @@ describe("POST /api/user/checkout-credit ownership", () => {
     const res = await request(app).post("/api/user/checkout-credit").set(auth()).send({ reservationId: "r1" });
     expect(res.status).toBe(403);
   });
+
+  it("credits unused time to the wallet and broadcasts the freed spot", async () => {
+    const inThirtyMin = new Date(Date.now() + 30 * 60 * 1000);
+    const reservation = {
+      _id: "r1", userId: "user123", spotId: "s1", status: "checked-in",
+      endTime: inThirtyMin, save: jest.fn().mockResolvedValue(undefined),
+    };
+    Reservation.findById = jest.fn().mockResolvedValue(reservation);
+    ParkingSpot.findByIdAndUpdate = jest.fn().mockResolvedValue({ _id: "s1", isAvailable: true });
+    User.findByIdAndUpdate = jest.fn().mockResolvedValue(null);
+
+    const res = await request(app).post("/api/user/checkout-credit").set(auth()).send({ reservationId: "r1" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.walletCredit).toBeGreaterThan(2.4); // ~30 min at $5/hr
+    expect(res.body.walletCredit).toBeLessThanOrEqual(2.5);
+    expect(User.findByIdAndUpdate).toHaveBeenCalledWith("user123", {
+      $inc: { walletBalance: res.body.walletCredit },
+    });
+    expect(reservation.status).toBe("completed");
+  });
 });
 
 describe("admin endpoints", () => {

@@ -362,4 +362,72 @@ describe("POST /api/parking/reserve", () => {
     expect(filter).toMatchObject({ userId: "user123", amount: 5, status: "completed", reservationId: null });
     expect(update).toEqual({ reservationId: "r1" });
   });
+
+  describe("paying with the wallet", () => {
+    const reserveWithWallet = () => {
+      const { startTime, endTime } = times(); // one hour = $5
+      return request(app)
+        .post("/api/parking/reserve")
+        .set("Authorization", `Bearer ${makeToken()}`)
+        .send({ spotId: "s1", startTime, endTime, useWallet: true });
+    };
+
+    beforeEach(() => {
+      Payment.findOneAndUpdate = jest.fn();
+      Payment.mockImplementation(() => ({ save: jest.fn().mockResolvedValue(undefined) }));
+      Reservation.mockImplementation(() => ({
+        _id: "r1",
+        save: jest.fn().mockResolvedValue(undefined),
+      }));
+    });
+
+    it("debits the price atomically and never touches stored payments", async () => {
+      ParkingSpot.findOneAndUpdate = jest.fn().mockResolvedValue({ _id: "s1", isAvailable: false });
+      User.findOneAndUpdate = jest.fn().mockResolvedValue({ _id: "user123" });
+
+      const res = await reserveWithWallet();
+
+      expect(res.status).toBe(201);
+      expect(User.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: "user123", walletBalance: { $gte: 5 } },
+        { $inc: { walletBalance: -5 } }
+      );
+      expect(Payment.findOneAndUpdate).not.toHaveBeenCalled();
+    });
+
+    it("returns 402 and releases the spot when the balance is too low", async () => {
+      ParkingSpot.findOneAndUpdate = jest
+        .fn()
+        .mockResolvedValueOnce({ _id: "s1", isAvailable: false })
+        .mockResolvedValue(null);
+      User.findOneAndUpdate = jest.fn().mockResolvedValue(null);
+
+      const res = await reserveWithWallet();
+
+      expect(res.status).toBe(402);
+      expect(res.body.message).toMatch(/insufficient/i);
+      expect(ParkingSpot.findOneAndUpdate).toHaveBeenLastCalledWith(
+        { _id: "s1", reservedBy: "user123" },
+        { isAvailable: true, reservedBy: null }
+      );
+    });
+
+    it("refunds the wallet and releases the spot if saving fails", async () => {
+      ParkingSpot.findOneAndUpdate = jest
+        .fn()
+        .mockResolvedValueOnce({ _id: "s1", isAvailable: false })
+        .mockResolvedValue(null);
+      User.findOneAndUpdate = jest.fn().mockResolvedValue({ _id: "user123" });
+      User.findByIdAndUpdate = jest.fn().mockResolvedValue(null);
+      Reservation.mockImplementation(() => ({
+        _id: "r1",
+        save: jest.fn().mockRejectedValue(new Error("db down")),
+      }));
+
+      const res = await reserveWithWallet();
+
+      expect(res.status).toBe(500);
+      expect(User.findByIdAndUpdate).toHaveBeenCalledWith("user123", { $inc: { walletBalance: 5 } });
+    });
+  });
 });

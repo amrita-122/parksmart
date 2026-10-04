@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { CardElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import axios from "axios";
@@ -10,7 +11,28 @@ export default function Payment() {
   const elements = useElements();
   const navigate = useNavigate();
   const token = localStorage.getItem("token");
+  const [walletBalance, setWalletBalance] = useState(0);
 
+  useEffect(() => {
+    axios
+      .get(`${API_URL}/api/user/wallet`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => setWalletBalance(res.data.walletBalance))
+      .catch(() => setWalletBalance(0));
+  }, [token]);
+
+  const handleWalletPayment = async () => {
+    try {
+      await axios.post(
+        `${API_URL}/api/parking/reserve`,
+        { spotId, startTime, endTime, useWallet: true },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      navigate("/payment/success");
+    } catch (err) {
+      console.error("Wallet payment failed", err);
+      alert(err?.response?.data?.message || "Wallet payment failed");
+    }
+  };
 
   const handleStripePayment = async () => {
     try {
@@ -74,6 +96,19 @@ export default function Payment() {
       >
         Confirm Payment
       </button>
+
+      <div className="mt-6 border-t pt-4">
+        <p className="mb-2">
+          Wallet balance: <strong>${walletBalance.toFixed(2)}</strong>
+        </p>
+        <button
+          onClick={handleWalletPayment}
+          disabled={walletBalance < amount}
+          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
+        >
+          Pay with wallet
+        </button>
+      </div>
     </div>
   );
 }

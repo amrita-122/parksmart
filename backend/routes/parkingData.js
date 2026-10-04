@@ -4,6 +4,7 @@ const router = express.Router();
 const authenticate = require("../middlewares/authenticate");
 const { requireAdmin, requireDeviceKey, ownsReservation } = require("../middlewares/authorize");
 const { Payment } = require("../models/payments");
+const User = require("../models/User");
 const { getIO } = require("../socket");
 const { priceForDuration } = require("../utils/pricing");
 
@@ -60,7 +61,7 @@ const START_GRACE_MS = 10 * 60 * 1000;
 
 router.post("/reserve", authenticate, async (req, res) => {
   try {
-    const { spotId, startTime, endTime } = req.body;
+    const { spotId, startTime, endTime, useWallet } = req.body;
     const userId = req.user.id;
 
     const start = new Date(startTime);
@@ -101,24 +102,58 @@ router.post("/reserve", authenticate, async (req, res) => {
 
     // One payment pays for one reservation: claim an unused completed payment
     // (reservationId still null) whose amount matches the booked duration.
+    const price = priceForDuration(start, end);
     const reservation = new Reservation({ userId, spotId, startTime, endTime, status: "reserved" });
-    const payment = await Payment.findOneAndUpdate(
-      { userId, amount: priceForDuration(start, end), status: "completed", reservationId: null },
-      { reservationId: reservation._id },
-      { sort: { timestamp: 1 } }
-    );
-    if (!payment) {
-      await releaseSpot();
-      return res.status(403).json({ message: "Please complete a payment for this booking before reserving." });
+
+    // `refund` undoes whichever payment source was taken if saving fails.
+    let refund;
+    if (useWallet === true) {
+      // The debit is one conditional write, so the balance can never go negative.
+      const debited = await User.findOneAndUpdate(
+        { _id: userId, walletBalance: { $gte: price } },
+        { $inc: { walletBalance: -price } }
+      );
+      if (!debited) {
+        await releaseSpot();
+        return res.status(402).json({ message: "Insufficient wallet balance." });
+      }
+      refund = () => User.findByIdAndUpdate(userId, { $inc: { walletBalance: price } });
+    } else {
+      const payment = await Payment.findOneAndUpdate(
+        { userId, amount: price, status: "completed", reservationId: null },
+        { reservationId: reservation._id },
+        { sort: { timestamp: 1 } }
+      );
+      if (!payment) {
+        await releaseSpot();
+        return res.status(403).json({ message: "Please complete a payment for this booking before reserving." });
+      }
+      refund = () => Payment.findByIdAndUpdate(payment._id, { reservationId: null });
     }
 
     try {
       await reservation.save();
     } catch (saveError) {
-      // Give the payment and the spot back so the user can retry.
-      await Payment.findByIdAndUpdate(payment._id, { reservationId: null });
+      // Give the payment (or wallet balance) and the spot back so the user can retry.
+      await refund();
       await releaseSpot();
       throw saveError;
+    }
+
+    if (useWallet === true) {
+      // Keep the wallet spend visible in payment history.
+      try {
+        await new Payment({
+          userId,
+          reservationId: reservation._id,
+          amount: price,
+          paymentMethod: "wallet",
+          transactionId: `wallet_${reservation._id}`,
+          status: "completed",
+        }).save();
+      } catch (recordError) {
+        console.error("Wallet payment record failed:", recordError.message);
+      }
     }
 
     getIO().emit("spot:updated", claimedSpot);

@@ -124,7 +124,8 @@ On each reading it calls `POST /api/parking/update-status` with the `spotNumber`
 - Each user has a `walletBalance` (default 0, never negative).
 - `GET /api/user/wallet` returns the balance, and the Settings page displays it.
 - `POST /api/user/checkout-credit` checks a user out and credits the unused part of the booking at $5 per hour (`RATE_PER_HOUR` in `reservationData.js`).
-- The Check In/Out page currently calls `/api/parking/checkout`, which does not credit the wallet. **Planned:** switch the UI to the credit endpoint and let the balance pay for future reservations.
+- The Check In/Out page calls `/api/user/checkout-credit`, so unused time is credited when you check out early and the freed spot is broadcast to open maps.
+- A reservation can be paid from the wallet: `POST /api/parking/reserve` with `useWallet: true` debits the server-computed price in one conditional write (402 if the balance is too low) and records a `wallet` payment. The balance is refunded if the reservation fails to save. The Payment page offers a "Pay with wallet" button.
 
 ### Real-time Updates
 
@@ -378,7 +379,6 @@ Current gaps that are worth fixing before a real deployment:
 - There is no refresh-token flow and tokens cannot be revoked before they expire. The token is kept in `localStorage`.
 - The redirect-based Google login (`GET /api/auth/google` and its callback) is not working: the Passport verify callback in `config/passport.js` has the wrong argument order and a relative `callbackURL`. The frontend uses the ID-token flow (`POST /api/auth/google`), which does work.
 - No request-body schema validation beyond the checks in each route, no `helmet` headers, and the rate limit only covers `/api/auth`.
-- The wallet credit endpoint exists but the Check In/Out page does not use it.
 
 ---
 
