@@ -4,7 +4,7 @@ CommonJS (`require`/`module.exports`), Express 4, Mongoose 8. Errors are JSON `{
 
 ## Startup
 `server.js` loads dotenv, creates the HTTP server, calls `socket.init(httpServer)`, runs `connectDb()` and listens on `PORT`.
-`app.js` sets CORS (origin `CLIENT_URL`, default `http://localhost:5173`), `express.json()`, passport, and a 20 req/min rate limit on `/api/auth` only. It also serves `/health`.
+`app.js` sets CORS (origin `CLIENT_URL`, default `http://localhost:5173`), `helmet`, `express.json({ limit: "10kb" })`, passport, and rate limits (20/min on `/api/auth`, 30/min on `/api/payment`, 600 per 15 min on `/api` and `/app`). Optional `TRUST_PROXY` sets the proxy hop count. It also serves `/health`.
 
 ## Route mounts
 | Mount | File |

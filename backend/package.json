@@ -27,18 +27,18 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "express-rate-limit": "^8.3.2",
-    "google-auth-library": "^9.15.1",
-    "googleapis": "^148.0.0",
+    "google-auth-library": "^11.1.0",
+    "googleapis": "^183.0.0",
+    "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.11.0",
-    "nodemailer": "^6.10.0",
+    "nodemailer": "^10.0.14",
     "otp-generator": "^4.0.1",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
     "serialport": "^13.0.0",
     "socket.io": "^4.8.1",
-    "stripe": "^18.0.0",
-    "two-step-auth": "^1.1.2"
+    "stripe": "^18.0.0"
   },
   "devDependencies": {
     "jest": "^30.3.0",

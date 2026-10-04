@@ -43,7 +43,7 @@ Arduino --> bridge.js (serialport) --> POST /api/parking/update-status
 
 The frontend sends a JWT in the `Authorization: Bearer` header on every authenticated request. The `authenticate` middleware in Express verifies it and attaches the user to `req.user`.
 
-Server structure: `backend/server.js` creates the HTTP server, initialises socket.io (`socket.js`), connects to MongoDB and listens on `PORT`. `backend/app.js` builds the Express app (CORS for `CLIENT_URL`, JSON parsing, Passport, a rate limit of 20 requests per minute on `/api/auth`, a `/health` endpoint) and mounts the routers.
+Server structure: `backend/server.js` creates the HTTP server, initialises socket.io (`socket.js`), connects to MongoDB and listens on `PORT`. `backend/app.js` builds the Express app (`helmet` security headers, CORS for `CLIENT_URL`, JSON parsing capped at 10 KB, Passport, rate limits of 20 requests per minute on `/api/auth`, 30 per minute on `/api/payment` and 600 per 15 minutes on all of `/api` and `/app`, a `/health` endpoint) and mounts the routers.
 
 ---
 
@@ -339,6 +339,7 @@ node bridge.js
 MongoDB_URL=
 JWT_SECRET=                        # required: the server refuses to start without it
 JWT_EXPIRES_IN=1d                  # optional: lifetime of every issued token (default 1d)
+TRUST_PROXY=1                      # optional: number of reverse-proxy hops, so rate limits use the real client IP
 DEVICE_API_KEY=                    # shared secret for the Arduino bridge; sensor updates are rejected without it
 SEED_ADMIN_PASSWORD=               # optional: password for node seed.js (random if unset)
 PORT=3000
@@ -378,7 +379,7 @@ Current gaps that are worth fixing before a real deployment:
 - Claiming a spot in `/api/parking/reserve` is atomic, so two users booking the same spot at the same moment can no longer both succeed. Overlap checks for the same user or spot are still Planned (see Reservations).
 - There is no refresh-token flow and tokens cannot be revoked before they expire. The token is kept in `localStorage`.
 - The redirect-based Google login (`GET /api/auth/google` and its callback) is not working: the Passport verify callback in `config/passport.js` has the wrong argument order and a relative `callbackURL`. The frontend uses the ID-token flow (`POST /api/auth/google`), which does work.
-- No request-body schema validation beyond the checks in each route, no `helmet` headers, and the rate limit only covers `/api/auth`.
+- No request-body schema validation beyond the checks in each route. Rate limits are per IP and in memory, so they reset on restart and are not shared across instances.
 
 ---
 
