@@ -55,14 +55,30 @@ router.get("/all", async (_req, res) => {
   }
 });
 
+const START_GRACE_MS = 10 * 60 * 1000;
+
 router.post("/reserve", authenticate, async (req, res) => {
   try {
     const { spotId, startTime, endTime } = req.body;
     const userId = req.user.id;
 
+    const start = new Date(startTime);
+    const end = new Date(endTime);
+    if (!startTime || !endTime || isNaN(start) || isNaN(end)) {
+      return res.status(400).json({ message: "startTime and endTime must be valid dates." });
+    }
+    if (end <= start) {
+      return res.status(400).json({ message: "endTime must be after startTime." });
+    }
+
     const now = new Date();
+    // The user picks the time, then pays, then reserves, so allow a short grace window.
+    const earliestStart = new Date(now.getTime() - START_GRACE_MS);
+    if (start < earliestStart) {
+      return res.status(400).json({ message: "startTime cannot be in the past." });
+    }
     const maxReserveTime = new Date(now.getTime() + 20 * 60 * 1000);
-    if (new Date(startTime) > maxReserveTime) {
+    if (start > maxReserveTime) {
       return res.status(400).json({ message: "Reservation must be within 20 minutes from now." });
     }
 
@@ -205,12 +221,15 @@ router.post("/update-status", requireDeviceKey, async (req, res) => {
   }
 
   try {
-    const spot = await ParkingSpot.findOneAndUpdate(
-      { spotNumber },
-      { isAvailable },
-      { new: true }
-    );
-    if (!spot) return res.status(404).json({ message: "Spot not found" });
+    // A sensor "available" report must not free a spot someone has reserved.
+    const filter = isAvailable ? { spotNumber, reservedBy: null } : { spotNumber };
+    const spot = await ParkingSpot.findOneAndUpdate(filter, { isAvailable }, { new: true });
+    if (!spot) {
+      if (await ParkingSpot.exists({ spotNumber })) {
+        return res.json({ success: true, ignored: true, reason: "Spot is reserved" });
+      }
+      return res.status(404).json({ message: "Spot not found" });
+    }
 
     // Broadcast real-time update to all connected clients
     getIO().emit("spot:updated", spot);

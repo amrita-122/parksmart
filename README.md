@@ -72,7 +72,8 @@ Server structure: `backend/server.js` creates the HTTP server, initialises socke
 - Reserve a spot with `POST /api/parking/reserve` by providing `spotId`, `startTime`, and `endTime`. The user comes from the JWT.
 - The backend validates:
   - The spot exists and is available
-  - `startTime` is no more than 20 minutes from now
+  - `startTime` and `endTime` are valid dates and `endTime` is after `startTime`
+  - `startTime` is not in the past (a 10-minute grace window covers the time spent paying) and is no more than 20 minutes from now
   - The user has a completed payment that has not been used yet. Each payment covers exactly one reservation: the reservation claims it, so one payment cannot be reused for unlimited bookings.
 - A successful reservation marks the spot unavailable (`reservedBy` is set) and broadcasts a `spot:updated` socket event.
 - Reservation statuses: `reserved` → `checked-in` → `completed`. The schema also allows `cancelled`.
@@ -82,7 +83,6 @@ Server structure: `backend/server.js` creates the HTTP server, initialises socke
 
 **Planned (not yet implemented)**
 
-- Validate that `startTime` is in the future and before `endTime`.
 - Reject reservations that overlap an existing active reservation for the same user or the same spot.
 - Mark the spot as occupied (`occupiedBy`) on check-in.
 - Keep cancelled reservations with a `cancelled` status instead of deleting them.
@@ -101,7 +101,7 @@ Server structure: `backend/server.js` creates the HTTP server, initialises socke
 
 On each reading it calls `POST /api/parking/update-status` with the `spotNumber` (hardcoded to `"11"` in bridge.js) and the parsed `isAvailable` boolean. The request carries an `x-device-key` header taken from `DEVICE_API_KEY` in `backend/.env`; the backend compares it with its own `DEVICE_API_KEY` and rejects anything else (and rejects everything if the key is not configured). Generate a long random value, for example `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
 
-**Current behavior:** the backend sets `isAvailable` on the matching spot and broadcasts a `spot:updated` socket event so open maps update live. It returns 404 if the spot number does not exist.
+**Current behavior:** the backend sets `isAvailable` on the matching spot and broadcasts a `spot:updated` socket event so open maps update live. It returns 404 if the spot number does not exist. An `available` report is ignored (200 with `ignored: true`, no broadcast) while the spot is reserved, so the sensor cannot free a spot someone has booked; an `occupied` report is always applied. A reserved spot is freed only by check-out, checkout-credit or cancel.
 
 **Planned (not yet implemented):**
 - If the sensor says occupied but no user has checked in: mark any active reservation for that spot as `"violated"` (this status does not exist in the schema yet).
@@ -374,7 +374,7 @@ VITE_STRIPE_PUBLIC_KEY=
 
 Current gaps that are worth fixing before a real deployment:
 
-- Claiming a spot in `/api/parking/reserve` is atomic, so two users booking the same spot at the same moment can no longer both succeed. Time-range overlap checks are still Planned (see Reservations), and the device route `/api/parking/update-status` can still overwrite `isAvailable` on a reserved spot.
+- Claiming a spot in `/api/parking/reserve` is atomic, so two users booking the same spot at the same moment can no longer both succeed. Overlap checks for the same user or spot are still Planned (see Reservations).
 - Payments are matched to reservations by user, not by price, so a cheap payment can still claim a longer booking. Pricing should be computed on the server from the booked duration.
 - There is no refresh-token flow and tokens cannot be revoked before they expire. The token is kept in `localStorage`.
 - The redirect-based Google login (`GET /api/auth/google` and its callback) is not working: the Passport verify callback in `config/passport.js` has the wrong argument order and a relative `callbackURL`. The frontend uses the ID-token flow (`POST /api/auth/google`), which does work.

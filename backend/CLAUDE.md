@@ -22,7 +22,7 @@ Auth middleware is `middlewares/authenticate.js`. Most routes do not use it yet;
 - **Signup:** `POST /api/auth/sendotp` emails an OTP via Gmail OAuth2 (`utils/mailSender.js`). `POST /signup` verifies it, hashes the password with bcrypt and returns a JWT.
 - **Reservation:** the client creates a Stripe intent (`/api/payment/create-intent`), confirms it, then calls `/api/payment/checkout`. After that `POST /api/parking/reserve` requires a completed payment, a start time within 20 minutes and an available spot. It marks the spot unavailable.
 - **Check-in/out:** `/api/parking/checkin` and `/checkout`. `/api/user/checkout-credit` credits `User.walletBalance` at $5/hour for unused time.
-- **IoT:** `bridge.js` reads `occupied`/`available` from serial and POSTs `/api/parking/update-status`. That route only sets `isAvailable` and emits. The violation/wallet logic in the README is not implemented.
+- **IoT:** `bridge.js` reads `occupied`/`available` from serial and POSTs `/api/parking/update-status`. That route only sets `isAvailable` and emits, and it ignores `available` reports for reserved spots (`reservedBy` set). The violation/wallet logic in the README is not implemented.
 
 ## Socket contract
 `socket.js` exports `init(httpServer)` and an emitter. The `spot:updated` event is emitted on reserve and update-status. `frontend/src/components/Maps.jsx` subscribes to it. Keep the payload shape stable.
