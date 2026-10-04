@@ -18,6 +18,8 @@ const User = require("../models/User");
 const jwt = require("jsonwebtoken");
 
 process.env.JWT_SECRET = "test-secret";
+const SPOT_ID = "a1b2c3d4e5f6a1b2c3d4e5f6"; // request ids must look like Mongo ObjectIds
+const RES_ID = "b1b2c3d4e5f6a1b2c3d4e5f6";
 process.env.DEVICE_API_KEY = "test-device-key";
 
 const makeToken = (payload = { id: "user123", email: "u@test.com" }) =>
@@ -292,7 +294,7 @@ describe("POST /api/parking/checkin and /checkout ownership", () => {
   });
 
   it("checkin returns 401 without a token", async () => {
-    const res = await request(app).post("/api/parking/checkin").send({ reservationId: "r1" });
+    const res = await request(app).post("/api/parking/checkin").send({ reservationId: RES_ID });
     expect(res.status).toBe(401);
   });
 
@@ -301,7 +303,7 @@ describe("POST /api/parking/checkin and /checkout ownership", () => {
     const res = await request(app)
       .post("/api/parking/checkin")
       .set("Authorization", `Bearer ${makeToken()}`)
-      .send({ reservationId: "r1" });
+      .send({ reservationId: RES_ID });
     expect(res.status).toBe(403);
   });
 
@@ -311,7 +313,7 @@ describe("POST /api/parking/checkin and /checkout ownership", () => {
     const res = await request(app)
       .post("/api/parking/checkin")
       .set("Authorization", `Bearer ${makeToken()}`)
-      .send({ reservationId: "r1" });
+      .send({ reservationId: RES_ID });
     expect(res.status).toBe(200);
     expect(ParkingSpot.findByIdAndUpdate).toHaveBeenCalledWith("s1", { occupiedBy: "user123" }, { new: true });
     expect(mockEmit).toHaveBeenCalledWith("spot:updated", expect.objectContaining({ occupiedBy: "user123" }));
@@ -323,7 +325,7 @@ describe("POST /api/parking/checkin and /checkout ownership", () => {
     const res = await request(app)
       .post("/api/parking/checkout")
       .set("Authorization", `Bearer ${makeToken()}`)
-      .send({ reservationId: "r1" });
+      .send({ reservationId: RES_ID });
     expect(res.status).toBe(200);
     expect(ParkingSpot.findByIdAndUpdate).toHaveBeenCalledWith(
       "s1",
@@ -337,7 +339,7 @@ describe("POST /api/parking/checkin and /checkout ownership", () => {
     const res = await request(app)
       .post("/api/parking/checkout")
       .set("Authorization", `Bearer ${makeToken()}`)
-      .send({ reservationId: "r1" });
+      .send({ reservationId: RES_ID });
     expect(res.status).toBe(403);
   });
 });
@@ -363,7 +365,7 @@ describe("POST /api/parking/reserve", () => {
       request(app)
         .post("/api/parking/reserve")
         .set("Authorization", `Bearer ${makeToken()}`)
-        .send({ spotId: "s1", ...body });
+        .send({ spotId: SPOT_ID, ...body });
 
     beforeEach(() => {
       ParkingSpot.findOneAndUpdate = jest.fn().mockResolvedValue(null);
@@ -400,7 +402,7 @@ describe("POST /api/parking/reserve", () => {
     const res = await request(app)
       .post("/api/parking/reserve")
       .set("Authorization", `Bearer ${makeToken()}`)
-      .send({ spotId: "s1", startTime, endTime });
+      .send({ spotId: SPOT_ID, startTime, endTime });
     expect(res.status).toBe(409);
     expect(res.body.message).toMatch(/overlaps/i);
     expect(ParkingSpot.findOneAndUpdate).not.toHaveBeenCalled();
@@ -415,7 +417,7 @@ describe("POST /api/parking/reserve", () => {
     const res = await request(app)
       .post("/api/parking/reserve")
       .set("Authorization", `Bearer ${makeToken()}`)
-      .send({ spotId: "s1", startTime, endTime });
+      .send({ spotId: SPOT_ID, startTime, endTime });
     expect(res.status).toBe(400);
     expect(res.body.message).toMatch(/not available/i);
     // The loser of a race must not touch any payment.
@@ -432,11 +434,11 @@ describe("POST /api/parking/reserve", () => {
     const res = await request(app)
       .post("/api/parking/reserve")
       .set("Authorization", `Bearer ${makeToken()}`)
-      .send({ spotId: "s1", startTime, endTime });
+      .send({ spotId: SPOT_ID, startTime, endTime });
     expect(res.status).toBe(403);
     expect(res.body.message).toMatch(/payment/i);
     expect(ParkingSpot.findOneAndUpdate).toHaveBeenLastCalledWith(
-      { _id: "s1", reservedBy: "user123" },
+      { _id: SPOT_ID, reservedBy: "user123" },
       { isAvailable: true, reservedBy: null }
     );
   });
@@ -456,11 +458,11 @@ describe("POST /api/parking/reserve", () => {
     const res = await request(app)
       .post("/api/parking/reserve")
       .set("Authorization", `Bearer ${makeToken()}`)
-      .send({ spotId: "s1", startTime, endTime });
+      .send({ spotId: SPOT_ID, startTime, endTime });
     expect(res.status).toBe(500);
     expect(Payment.findByIdAndUpdate).toHaveBeenCalledWith("p1", { reservationId: null });
     expect(ParkingSpot.findOneAndUpdate).toHaveBeenLastCalledWith(
-      { _id: "s1", reservedBy: "user123" },
+      { _id: SPOT_ID, reservedBy: "user123" },
       { isAvailable: true, reservedBy: null }
     );
   });
@@ -477,11 +479,11 @@ describe("POST /api/parking/reserve", () => {
     const res = await request(app)
       .post("/api/parking/reserve")
       .set("Authorization", `Bearer ${makeToken()}`)
-      .send({ spotId: "s1", startTime, endTime });
+      .send({ spotId: SPOT_ID, startTime, endTime });
 
     expect(res.status).toBe(201);
     expect(ParkingSpot.findOneAndUpdate).toHaveBeenCalledWith(
-      { _id: "s1", isAvailable: true },
+      { _id: SPOT_ID, isAvailable: true },
       { isAvailable: false, reservedBy: "user123" },
       { new: true }
     );
@@ -497,7 +499,7 @@ describe("POST /api/parking/reserve", () => {
       return request(app)
         .post("/api/parking/reserve")
         .set("Authorization", `Bearer ${makeToken()}`)
-        .send({ spotId: "s1", startTime, endTime, useWallet: true });
+        .send({ spotId: SPOT_ID, startTime, endTime, useWallet: true });
     };
 
     beforeEach(() => {
@@ -535,7 +537,7 @@ describe("POST /api/parking/reserve", () => {
       expect(res.status).toBe(402);
       expect(res.body.message).toMatch(/insufficient/i);
       expect(ParkingSpot.findOneAndUpdate).toHaveBeenLastCalledWith(
-        { _id: "s1", reservedBy: "user123" },
+        { _id: SPOT_ID, reservedBy: "user123" },
         { isAvailable: true, reservedBy: null }
       );
     });

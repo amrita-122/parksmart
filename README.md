@@ -51,7 +51,7 @@ Server structure: `backend/server.js` creates the HTTP server, initialises socke
 
 ### Authentication
 
-- **Sign up** requires name, email, phone number, password, and a 6-digit OTP sent to the email. OTP is verified at signup time.
+- **Sign up** requires name, email, phone number, password, and a 6-digit OTP sent to the email. OTP is verified at signup time and deleted once used. The OTP is only ever emailed: `/sendotp` never returns it in the response, and answers 502 (discarding the OTP) if the email could not be sent.
 - **Log in** accepts either email or phone number plus password.
 - **Google sign-in** uses the Google ID token exchange flow. The backend verifies the token with `OAuth2Client`, then creates or finds the user and returns a JWT.
 - Passwords are hashed with bcryptjs (10 salt rounds).
@@ -123,6 +123,12 @@ On each reading it calls `POST /api/parking/update-status` with the `spotNumber`
 - `POST /api/user/checkout-credit` checks a user out and credits the unused part of the booking at $5 per hour (`RATE_PER_HOUR` in `reservationData.js`).
 - The Check In/Out page calls `/api/user/checkout-credit`, so unused time is credited when you check out early and the freed spot is broadcast to open maps.
 - A reservation can be paid from the wallet: `POST /api/parking/reserve` with `useWallet: true` debits the server-computed price in one conditional write (402 if the balance is too low) and records a `wallet` payment. The balance is refunded if the reservation fails to save. The Payment page offers a "Pay with wallet" button.
+
+### Input validation
+
+- Every value from the request that reaches a database query is checked to be a primitive of the expected type (`utils/validate.js`): ids must be 24-character hex strings, emails, phone numbers and passwords are shape- and length-checked (passwords up to 72 characters, bcrypt's limit), and `useWallet` must be a boolean. Invalid input gets a 400.
+- `middlewares/sanitize.js` additionally drops any key starting with `$` or containing `.` from the body and query string, so an object such as `{ "$ne": null }` can never be interpreted as a Mongo operator.
+- `POST /api/payment/checkout` ignores any `reservationId` in the body; only `/api/parking/reserve` links a payment to a reservation.
 
 ### Real-time Updates
 
@@ -378,7 +384,7 @@ Current gaps that are worth fixing before a real deployment:
 - Claiming a spot in `/api/parking/reserve` is atomic, so two users booking the same spot at the same moment can no longer both succeed. Overlap checks for the same user are in place (see Reservations).
 - There is no refresh-token flow and tokens cannot be revoked before they expire. The token is kept in `localStorage`.
 - The redirect-based Google login (`GET /api/auth/google` and its callback) is fixed and tested, but the frontend still signs in with the ID-token flow (`POST /api/auth/google`) and has no button for the redirect flow. It has no OAuth `state` check because there is no session store.
-- No request-body schema validation beyond the checks in each route. Rate limits are per IP and in memory, so they reset on restart and are not shared across instances.
+- Request validation is hand-written per route (`utils/validate.js`), not a schema library. Rate limits are per IP and in memory, so they reset on restart and are not shared across instances.
 
 ---
 

@@ -21,6 +21,8 @@ const { Payment } = require("../models/payments");
 const User = require("../models/User");
 
 process.env.JWT_SECRET = "test-secret";
+const SPOT_ID = "a1b2c3d4e5f6a1b2c3d4e5f6"; // request ids must look like Mongo ObjectIds
+const RES_ID = "b1b2c3d4e5f6a1b2c3d4e5f6";
 
 const makeToken = (payload = { id: "user123", email: "u@test.com" }) =>
   jwt.sign(payload, "test-secret");
@@ -147,19 +149,19 @@ describe("POST /api/payment/checkout", () => {
 
 describe("DELETE /api/user/cancel/:id", () => {
   it("returns 401 without a token", async () => {
-    const res = await request(app).delete("/api/user/cancel/r1");
+    const res = await request(app).delete(`/api/user/cancel/${RES_ID}`);
     expect(res.status).toBe(401);
   });
 
   it("returns 403 for someone else's reservation", async () => {
     Reservation.findById = jest.fn().mockResolvedValue({ _id: "r1", userId: "other", status: "reserved" });
-    const res = await request(app).delete("/api/user/cancel/r1").set(auth());
+    const res = await request(app).delete(`/api/user/cancel/${RES_ID}`).set(auth());
     expect(res.status).toBe(403);
   });
 
   it("refuses to cancel after check-in", async () => {
     Reservation.findById = jest.fn().mockResolvedValue({ _id: "r1", userId: "user123", status: "checked-in" });
-    const res = await request(app).delete("/api/user/cancel/r1").set(auth());
+    const res = await request(app).delete(`/api/user/cancel/${RES_ID}`).set(auth());
     expect(res.status).toBe(400);
   });
 
@@ -171,7 +173,7 @@ describe("DELETE /api/user/cancel/:id", () => {
     Reservation.findById = jest.fn().mockResolvedValue(reservation);
     Reservation.findByIdAndDelete = jest.fn();
     ParkingSpot.findByIdAndUpdate = jest.fn().mockResolvedValue({});
-    const res = await request(app).delete("/api/user/cancel/r1").set(auth());
+    const res = await request(app).delete(`/api/user/cancel/${RES_ID}`).set(auth());
     expect(res.status).toBe(200);
     expect(reservation.status).toBe("cancelled");
     expect(reservation.save).toHaveBeenCalled();
@@ -196,7 +198,7 @@ describe("removed unauthenticated reserve route", () => {
 describe("POST /api/user/checkout-credit ownership", () => {
   it("returns 403 for someone else's reservation", async () => {
     Reservation.findById = jest.fn().mockResolvedValue({ _id: "r1", userId: "other", status: "checked-in" });
-    const res = await request(app).post("/api/user/checkout-credit").set(auth()).send({ reservationId: "r1" });
+    const res = await request(app).post("/api/user/checkout-credit").set(auth()).send({ reservationId: RES_ID });
     expect(res.status).toBe(403);
   });
 
@@ -211,7 +213,7 @@ describe("POST /api/user/checkout-credit ownership", () => {
     ParkingSpot.findByIdAndUpdate = jest.fn().mockResolvedValue({ _id: "s1", isAvailable: true });
     User.findByIdAndUpdate = jest.fn().mockResolvedValue(null);
 
-    const res = await request(app).post("/api/user/checkout-credit").set(auth()).send({ reservationId: "r1" });
+    const res = await request(app).post("/api/user/checkout-credit").set(auth()).send({ reservationId: RES_ID });
 
     expect(res.status).toBe(200);
     expect(res.body.walletCredit).toBeGreaterThan(2.4); // ~30 min at $5/hr
@@ -233,7 +235,7 @@ describe("POST /api/user/checkout-credit ownership", () => {
     Reservation.findOneAndUpdate = jest.fn().mockResolvedValue(null); // lost the race
     User.findByIdAndUpdate = jest.fn();
 
-    const res = await request(app).post("/api/user/checkout-credit").set(auth()).send({ reservationId: "r1" });
+    const res = await request(app).post("/api/user/checkout-credit").set(auth()).send({ reservationId: RES_ID });
 
     expect(res.status).toBe(400);
     expect(User.findByIdAndUpdate).not.toHaveBeenCalled();

@@ -4,6 +4,7 @@ const helmet = require("helmet");
 const passport = require("passport");
 const express = require("express");
 const rateLimit = require("express-rate-limit");
+const sanitize = require("./middlewares/sanitize");
 require("./config/passport");
 
 const authRoutes = require("./routes/auth");
@@ -22,6 +23,7 @@ if (process.env.TRUST_PROXY) app.set("trust proxy", Number(process.env.TRUST_PRO
 app.use(helmet());
 app.use(cors({ origin: process.env.CLIENT_URL || "http://localhost:5173", credentials: true }));
 app.use(express.json({ limit: "10kb" }));
+app.use(sanitize);
 app.use(passport.initialize());
 
 const makeLimiter = (windowMs, max) =>

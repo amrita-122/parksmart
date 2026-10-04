@@ -29,5 +29,6 @@ The code, `seed.js`, the README and CI now all use these names. Keep the backend
 - Mutating routes use `authenticate`; admin routes add `requireAdmin` (reads the role from the DB, not the JWT); reservation actions check `ownsReservation`; the Arduino route uses `requireDeviceKey` (`x-device-key`). All live in `backend/middlewares/`.
 - Take the user from `req.user.id`, never from the request body. Sign tokens only with `utils/token.js` `signToken` so they expire.
 - Payments are verified against Stripe in `/api/payment/checkout`; the stored amount comes from Stripe. Each payment is claimed by one reservation in `/api/parking/reserve`.
+- Anything from `req.body`/`req.query` that reaches a Mongo query must be type-checked with `backend/utils/validate.js` (ids via `isObjectId`); `middlewares/sanitize.js` also strips `$`/`.` keys. Never return an OTP in a response.
 - Never return password hashes (`.select("-password")` or strip them) and never log secrets or connection strings.
 - Open gaps (see README "Known Limitations"): no refresh tokens, the redirect-based Google login (`GET /api/auth/google`) works but the frontend does not use it and it has no OAuth `state`, rate limits are per-IP and in memory.

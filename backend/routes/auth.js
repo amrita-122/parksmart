@@ -29,7 +29,7 @@ router.get("/google/callback", (req, res, next) => {
 router.post("/google", async (req, res) => {
   try {
     const { token } = req.body;
-    if (!token) {
+    if (typeof token !== "string" || !token) {
       return res.status(400).json({ error: "Token is required" });
     }
 

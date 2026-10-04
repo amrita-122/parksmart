@@ -6,6 +6,7 @@ const { ownsReservation } = require("../middlewares/authorize");
 const { Payment } = require("../models/payments");
 const User = require("../models/User");
 const { getIO } = require("../socket");
+const { isObjectId } = require("../utils/validate");
 
 const { completeWithCredit } = require("../utils/checkoutCredit");
 
@@ -40,6 +41,9 @@ router.get("/wallet", authenticate, async (req, res) => {
 // Cancel reservation
 router.delete("/cancel/:id", authenticate, async (req, res) => {
   try {
+    if (!isObjectId(req.params.id)) {
+      return res.status(400).json({ error: "Invalid reservation id" });
+    }
     const reservation = await Reservation.findById(req.params.id);
     if (!reservation) {
       return res.status(404).json({ error: "Reservation not found" });
@@ -72,6 +76,9 @@ router.delete("/cancel/:id", authenticate, async (req, res) => {
 router.post("/checkout-credit", authenticate, async (req, res) => {
   try {
     const { reservationId } = req.body;
+    if (!isObjectId(reservationId)) {
+      return res.status(400).json({ message: "Invalid reservation!" });
+    }
     const reservation = await Reservation.findById(reservationId);
 
     if (!reservation || reservation.status !== "checked-in") {

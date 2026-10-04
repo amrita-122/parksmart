@@ -50,7 +50,7 @@ router.post("/create-intent", authenticate, async (req, res) => {
 // from the PaymentIntent, never from the request body.
 router.post("/checkout", authenticate, async (req, res) => {
   try {
-    const { reservationId, transactionId } = req.body;
+    const { transactionId } = req.body;
 
     if (typeof transactionId !== "string" || !transactionId.startsWith("pi_")) {
       return res.status(400).json({ message: "Invalid transactionId" });
@@ -70,7 +70,7 @@ router.post("/checkout", authenticate, async (req, res) => {
 
     const payment = new Payment({
       userId: req.user.id,
-      reservationId,
+      // reservationId is set only by /api/parking/reserve when it claims this payment.
       amount: intent.amount_received / 100,
       paymentMethod: "credit_card", // the intent only allows cards
       transactionId,

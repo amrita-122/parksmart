@@ -9,12 +9,16 @@ const { getIO } = require("../socket");
 const { priceForDuration } = require("../utils/pricing");
 const { findOverlappingReservation } = require("../utils/overlap");
 const { completeWithCredit } = require("../utils/checkoutCredit");
+const { isString, isObjectId } = require("../utils/validate");
 
 router.post("/add", authenticate, requireAdmin, async (req, res) => {
   try {
     const { lotNumber, spotNumber, lat, lng } = req.body;
     if (!lotNumber || !spotNumber || !lat || !lng) {
       return res.status(400).json({ message: "All fields are required" });
+    }
+    if (!isString(lotNumber) || !isString(spotNumber)) {
+      return res.status(400).json({ message: "lotNumber and spotNumber must be strings" });
     }
     if (!Number.isFinite(parseFloat(lat)) || !Number.isFinite(parseFloat(lng))) {
       return res.status(400).json({ message: "lat and lng must be numbers" });
@@ -68,6 +72,13 @@ router.post("/reserve", authenticate, async (req, res) => {
   try {
     const { spotId, startTime, endTime, useWallet } = req.body;
     const userId = req.user.id;
+
+    if (!isObjectId(spotId)) {
+      return res.status(400).json({ message: "spotId must be a valid id." });
+    }
+    if (useWallet !== undefined && typeof useWallet !== "boolean") {
+      return res.status(400).json({ message: "useWallet must be true or false." });
+    }
 
     const start = new Date(startTime);
     const end = new Date(endTime);
@@ -178,6 +189,9 @@ router.post("/reserve", authenticate, async (req, res) => {
 router.post("/checkin", authenticate, async (req, res) => {
   try {
     const { reservationId } = req.body;
+    if (!isObjectId(reservationId)) {
+      return res.status(400).json({ message: "Invalid reservation!" });
+    }
     const reservation = await Reservation.findById(reservationId);
 
     if (!reservation || reservation.status !== "reserved") {
@@ -206,6 +220,9 @@ router.post("/checkin", authenticate, async (req, res) => {
 router.post("/checkout", authenticate, async (req, res) => {
   try {
     const { reservationId } = req.body;
+    if (!isObjectId(reservationId)) {
+      return res.status(400).json({ message: "Invalid reservation!" });
+    }
     const reservation = await Reservation.findById(reservationId);
 
     if (!reservation || reservation.status !== "checked-in") {
@@ -270,7 +287,7 @@ router.get("/nearby", async (req, res) => {
 router.post("/update-status", requireDeviceKey, async (req, res) => {
   const { spotNumber, isAvailable } = req.body;
 
-  if (!spotNumber || typeof isAvailable !== "boolean") {
+  if (!isString(spotNumber) || typeof isAvailable !== "boolean") {
     return res.status(400).json({ message: "Invalid data" });
   }
 
