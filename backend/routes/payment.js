@@ -5,6 +5,7 @@ const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const authenticate = require("../middlewares/authenticate");
 const { Payment } = require("../models/payments");
 const { priceForDuration } = require("../utils/pricing");
+const { findOverlappingReservation } = require("../utils/overlap");
 
 const MIN_CENTS = 50; // Stripe's minimum charge in USD
 const MAX_CENTS = 100000; // $1,000 per payment
@@ -25,6 +26,11 @@ router.post("/create-intent", authenticate, async (req, res) => {
   }
 
   try {
+    // Fail before the user is charged for a booking that /reserve would reject.
+    if (await findOverlappingReservation(req.user.id, start, end)) {
+      return res.status(409).json({ message: "You already have a reservation that overlaps this time." });
+    }
+
     const paymentIntent = await stripe.paymentIntents.create({
       amount, // in cents
       currency: "usd",
@@ -44,7 +50,7 @@ router.post("/create-intent", authenticate, async (req, res) => {
 // from the PaymentIntent, never from the request body.
 router.post("/checkout", authenticate, async (req, res) => {
   try {
-    const { reservationId, transactionId } = req.body;
+    const { transactionId } = req.body;
 
     if (typeof transactionId !== "string" || !transactionId.startsWith("pi_")) {
       return res.status(400).json({ message: "Invalid transactionId" });
@@ -64,7 +70,7 @@ router.post("/checkout", authenticate, async (req, res) => {
 
     const payment = new Payment({
       userId: req.user.id,
-      reservationId,
+      // reservationId is set only by /api/parking/reserve when it claims this payment.
       amount: intent.amount_received / 100,
       paymentMethod: "credit_card", // the intent only allows cards
       transactionId,

@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const User = require("../models/User");
 const authenticate = require("../middlewares/authenticate");
+const { isEmail } = require("../utils/validate");
 
 // Mounted at /app/settings in app.js, so these are GET/PUT /app/settings.
 
@@ -26,6 +27,10 @@ router.put("/", authenticate, async (req, res) => {
 
     if (phoneNumber && !/^[0-9]{10}$/.test(phoneNumber)) {
       return res.status(400).json({ message: "Invalid phone number" });
+    }
+
+    if (email !== undefined && email !== "" && !isEmail(typeof email === "string" ? email.trim() : email)) {
+      return res.status(400).json({ message: "Invalid email" });
     }
 
     const updates = {};

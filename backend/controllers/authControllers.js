@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const OTP = require('../models/OtpModel');
 const { signToken } = require('../utils/token');
+const { isString, isEmail, isPhone } = require('../utils/validate');
 
 exports.signup = async (req, res) => {
     try{
@@ -10,6 +11,10 @@ exports.signup = async (req, res) => {
     const phoneNumber = req.body.phoneNumber;
     const password = req.body.password;
     const otp = req.body.otp
+
+    if (!isString(name) || !isEmail(email) || !isPhone(phoneNumber) || !isString(password, 72) || !isString(otp, 12)) {
+        return res.status(400).json({ message: "Name, a valid email, a 10-digit phone number, a password (up to 72 characters) and the OTP are required" });
+    }
 
     const user = await User.findOne({ email });
     if (user){
@@ -25,6 +30,8 @@ exports.signup = async (req, res) => {
         const hashedPass = await bcrypt.hash(password,10)
         const user1 = new User({name:name,email:email,phoneNumber:phoneNumber,password:hashedPass})
         await user1.save();
+        // An OTP is single-use.
+        await OTP.deleteMany({ email });
         const token = signToken({ id: user1._id, email: user1.email, role: user1.role });
         res.status(201).json({ message: "User Created Successfully!", token });
         console.log("User created")
@@ -36,7 +43,7 @@ exports.signup = async (req, res) => {
 exports.login = async (req,res)=>{
     try{
      const {emailorPhone,password} = req.body;
-     if (!emailorPhone || !password) {
+     if (!isString(emailorPhone) || !isString(password, 72)) {
          return res.status(400).json({ message: "Email/Phone and password are required!" });
        }
       const user = await User.findOne({

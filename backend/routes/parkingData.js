@@ -4,14 +4,21 @@ const router = express.Router();
 const authenticate = require("../middlewares/authenticate");
 const { requireAdmin, requireDeviceKey, ownsReservation } = require("../middlewares/authorize");
 const { Payment } = require("../models/payments");
+const User = require("../models/User");
 const { getIO } = require("../socket");
 const { priceForDuration } = require("../utils/pricing");
+const { findOverlappingReservation } = require("../utils/overlap");
+const { completeWithCredit } = require("../utils/checkoutCredit");
+const { isString, isObjectId } = require("../utils/validate");
 
 router.post("/add", authenticate, requireAdmin, async (req, res) => {
   try {
     const { lotNumber, spotNumber, lat, lng } = req.body;
     if (!lotNumber || !spotNumber || !lat || !lng) {
       return res.status(400).json({ message: "All fields are required" });
+    }
+    if (!isString(lotNumber) || !isString(spotNumber)) {
+      return res.status(400).json({ message: "lotNumber and spotNumber must be strings" });
     }
     if (!Number.isFinite(parseFloat(lat)) || !Number.isFinite(parseFloat(lng))) {
       return res.status(400).json({ message: "lat and lng must be numbers" });
@@ -57,11 +64,21 @@ router.get("/all", async (_req, res) => {
 });
 
 const START_GRACE_MS = 10 * 60 * 1000;
+// A car on a reserved spot is only a violation once the booking has started and the
+// holder has had this long to check in.
+const VIOLATION_GRACE_MS = 5 * 60 * 1000;
 
 router.post("/reserve", authenticate, async (req, res) => {
   try {
-    const { spotId, startTime, endTime } = req.body;
+    const { spotId, startTime, endTime, useWallet } = req.body;
     const userId = req.user.id;
+
+    if (!isObjectId(spotId)) {
+      return res.status(400).json({ message: "spotId must be a valid id." });
+    }
+    if (useWallet !== undefined && typeof useWallet !== "boolean") {
+      return res.status(400).json({ message: "useWallet must be true or false." });
+    }
 
     const start = new Date(startTime);
     const end = new Date(endTime);
@@ -83,6 +100,12 @@ router.post("/reserve", authenticate, async (req, res) => {
       return res.status(400).json({ message: "Reservation must be within 20 minutes from now." });
     }
 
+    // The same user cannot hold two active bookings that overlap in time. Two users
+    // (or one user) can never share a spot: the claim below is atomic.
+    if (await findOverlappingReservation(userId, start, end)) {
+      return res.status(409).json({ message: "You already have a reservation that overlaps this time." });
+    }
+
     // Claim the spot with one conditional write so only one request can win.
     const claimedSpot = await ParkingSpot.findOneAndUpdate(
       { _id: spotId, isAvailable: true },
@@ -101,24 +124,58 @@ router.post("/reserve", authenticate, async (req, res) => {
 
     // One payment pays for one reservation: claim an unused completed payment
     // (reservationId still null) whose amount matches the booked duration.
+    const price = priceForDuration(start, end);
     const reservation = new Reservation({ userId, spotId, startTime, endTime, status: "reserved" });
-    const payment = await Payment.findOneAndUpdate(
-      { userId, amount: priceForDuration(start, end), status: "completed", reservationId: null },
-      { reservationId: reservation._id },
-      { sort: { timestamp: 1 } }
-    );
-    if (!payment) {
-      await releaseSpot();
-      return res.status(403).json({ message: "Please complete a payment for this booking before reserving." });
+
+    // `refund` undoes whichever payment source was taken if saving fails.
+    let refund;
+    if (useWallet === true) {
+      // The debit is one conditional write, so the balance can never go negative.
+      const debited = await User.findOneAndUpdate(
+        { _id: userId, walletBalance: { $gte: price } },
+        { $inc: { walletBalance: -price } }
+      );
+      if (!debited) {
+        await releaseSpot();
+        return res.status(402).json({ message: "Insufficient wallet balance." });
+      }
+      refund = () => User.findByIdAndUpdate(userId, { $inc: { walletBalance: price } });
+    } else {
+      const payment = await Payment.findOneAndUpdate(
+        { userId, amount: price, status: "completed", reservationId: null },
+        { reservationId: reservation._id },
+        { sort: { timestamp: 1 } }
+      );
+      if (!payment) {
+        await releaseSpot();
+        return res.status(403).json({ message: "Please complete a payment for this booking before reserving." });
+      }
+      refund = () => Payment.findByIdAndUpdate(payment._id, { reservationId: null });
     }
 
     try {
       await reservation.save();
     } catch (saveError) {
-      // Give the payment and the spot back so the user can retry.
-      await Payment.findByIdAndUpdate(payment._id, { reservationId: null });
+      // Give the payment (or wallet balance) and the spot back so the user can retry.
+      await refund();
       await releaseSpot();
       throw saveError;
+    }
+
+    if (useWallet === true) {
+      // Keep the wallet spend visible in payment history.
+      try {
+        await new Payment({
+          userId,
+          reservationId: reservation._id,
+          amount: price,
+          paymentMethod: "wallet",
+          transactionId: `wallet_${reservation._id}`,
+          status: "completed",
+        }).save();
+      } catch (recordError) {
+        console.error("Wallet payment record failed:", recordError.message);
+      }
     }
 
     getIO().emit("spot:updated", claimedSpot);
@@ -132,6 +189,9 @@ router.post("/reserve", authenticate, async (req, res) => {
 router.post("/checkin", authenticate, async (req, res) => {
   try {
     const { reservationId } = req.body;
+    if (!isObjectId(reservationId)) {
+      return res.status(400).json({ message: "Invalid reservation!" });
+    }
     const reservation = await Reservation.findById(reservationId);
 
     if (!reservation || reservation.status !== "reserved") {
@@ -144,6 +204,13 @@ router.post("/checkin", authenticate, async (req, res) => {
     reservation.status = "checked-in";
     await reservation.save();
 
+    const occupiedSpot = await ParkingSpot.findByIdAndUpdate(
+      reservation.spotId,
+      { occupiedBy: req.user.id },
+      { new: true }
+    );
+    getIO().emit("spot:updated", occupiedSpot);
+
     res.status(200).json({ message: "Checked in successfully!", reservation });
   } catch (error) {
     res.status(500).json({ message: "Internal Server Error", error: error.message });
@@ -153,6 +220,9 @@ router.post("/checkin", authenticate, async (req, res) => {
 router.post("/checkout", authenticate, async (req, res) => {
   try {
     const { reservationId } = req.body;
+    if (!isObjectId(reservationId)) {
+      return res.status(400).json({ message: "Invalid reservation!" });
+    }
     const reservation = await Reservation.findById(reservationId);
 
     if (!reservation || reservation.status !== "checked-in") {
@@ -167,7 +237,7 @@ router.post("/checkout", authenticate, async (req, res) => {
 
     const updatedSpot = await ParkingSpot.findByIdAndUpdate(
       reservation.spotId,
-      { isAvailable: true, reservedBy: null },
+      { isAvailable: true, reservedBy: null, occupiedBy: null },
       { new: true }
     );
 
@@ -217,11 +287,35 @@ router.get("/nearby", async (req, res) => {
 router.post("/update-status", requireDeviceKey, async (req, res) => {
   const { spotNumber, isAvailable } = req.body;
 
-  if (!spotNumber || typeof isAvailable !== "boolean") {
+  if (!isString(spotNumber) || typeof isAvailable !== "boolean") {
     return res.status(400).json({ message: "Invalid data" });
   }
 
   try {
+    const existing = await ParkingSpot.findOne({ spotNumber });
+    if (existing) {
+      if (isAvailable) {
+        // The car left while a user was checked in: end the booking and credit
+        // the unused time, exactly like a manual check-out with credit.
+        const checkedIn = await Reservation.findOne({ spotId: existing._id, status: "checked-in" });
+        if (checkedIn) {
+          const result = await completeWithCredit(checkedIn);
+          if (result) {
+            return res.json({ success: true, updated: result.spot, walletCredit: result.walletCredit });
+          }
+        }
+      } else {
+        // A car is on the spot but its holder never checked in.
+        const unclaimed = await Reservation.findOne({ spotId: existing._id, status: "reserved" });
+        if (unclaimed && Date.now() - new Date(unclaimed.startTime).getTime() > VIOLATION_GRACE_MS) {
+          unclaimed.status = "violated";
+          await unclaimed.save();
+          // Release the hold so the spot frees normally when the car leaves.
+          await ParkingSpot.findOneAndUpdate({ _id: existing._id }, { reservedBy: null, occupiedBy: null });
+        }
+      }
+    }
+
     // A sensor "available" report must not free a spot someone has reserved.
     const filter = isAvailable ? { spotNumber, reservedBy: null } : { spotNumber };
     const spot = await ParkingSpot.findOneAndUpdate(filter, { isAvailable }, { new: true });

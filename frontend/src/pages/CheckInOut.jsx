@@ -55,8 +55,8 @@ export default function CheckInOut() {
 
   const handleCheckOut = async () => {
     try {
-      await axios.post(
-        `${API_URL}/api/parking/checkout`,
+      const { data } = await axios.post(
+        `${API_URL}/api/user/checkout-credit`,
         { reservationId: reservation._id },
         {
           headers: {
@@ -64,7 +64,11 @@ export default function CheckInOut() {
           },
         }
       );
-      alert("Checked out successfully!");
+      alert(
+        data.walletCredit > 0
+          ? `Checked out successfully! $${data.walletCredit.toFixed(2)} of unused time was added to your wallet.`
+          : "Checked out successfully!"
+      );
       setReservation(null);
     } catch (err) {
       console.error("Check-out failed", err);

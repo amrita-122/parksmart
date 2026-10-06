@@ -11,6 +11,7 @@ import CheckInOut from "./pages/CheckInOut";
 import History from "./pages/History";
 import AdminDashboard from "./pages/AdminDashboard";
 import PaymentSuccess from "./pages/PaymentSuccess";
+import GoogleCallback from "./pages/GoogleCallback";
 import {Navbar} from "./components/Navbar";
 export default function App() {
   return (
@@ -27,6 +28,7 @@ export default function App() {
             }
           />
           <Route path="/payment/success" element={<PaymentSuccess />} />
+          <Route path="/auth/google/callback" element={<GoogleCallback />} />
 
           <Route
             path="/admin"

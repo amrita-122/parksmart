@@ -5,8 +5,10 @@ const authenticate = require("../middlewares/authenticate");
 const { ownsReservation } = require("../middlewares/authorize");
 const { Payment } = require("../models/payments");
 const User = require("../models/User");
+const { getIO } = require("../socket");
+const { isObjectId } = require("../utils/validate");
 
-const { RATE_PER_HOUR } = require("../utils/pricing");
+const { completeWithCredit } = require("../utils/checkoutCredit");
 
 router.get("/reservations", authenticate, async (req, res) => {
   try {
@@ -39,6 +41,9 @@ router.get("/wallet", authenticate, async (req, res) => {
 // Cancel reservation
 router.delete("/cancel/:id", authenticate, async (req, res) => {
   try {
+    if (!isObjectId(req.params.id)) {
+      return res.status(400).json({ error: "Invalid reservation id" });
+    }
     const reservation = await Reservation.findById(req.params.id);
     if (!reservation) {
       return res.status(404).json({ error: "Reservation not found" });
@@ -50,8 +55,16 @@ router.delete("/cancel/:id", authenticate, async (req, res) => {
       return res.status(400).json({ error: "Only a reservation that has not been checked in can be cancelled" });
     }
 
-    await ParkingSpot.findByIdAndUpdate(reservation.spotId, { isAvailable: true, reservedBy: null });
-    await Reservation.findByIdAndDelete(req.params.id);
+    // Keep the record (status "cancelled") so history and the admin view still show it.
+    reservation.status = "cancelled";
+    await reservation.save();
+
+    const freedSpot = await ParkingSpot.findByIdAndUpdate(
+      reservation.spotId,
+      { isAvailable: true, reservedBy: null, occupiedBy: null },
+      { new: true }
+    );
+    getIO().emit("spot:updated", freedSpot);
 
     res.json({ message: "Reservation cancelled" });
   } catch (error) {
@@ -63,6 +76,9 @@ router.delete("/cancel/:id", authenticate, async (req, res) => {
 router.post("/checkout-credit", authenticate, async (req, res) => {
   try {
     const { reservationId } = req.body;
+    if (!isObjectId(reservationId)) {
+      return res.status(400).json({ message: "Invalid reservation!" });
+    }
     const reservation = await Reservation.findById(reservationId);
 
     if (!reservation || reservation.status !== "checked-in") {
@@ -72,30 +88,14 @@ router.post("/checkout-credit", authenticate, async (req, res) => {
       return res.status(403).json({ message: "Forbidden" });
     }
 
-    const now = new Date();
-    const endTime = new Date(reservation.endTime);
-    let walletCredit = 0;
-
-    if (now < endTime) {
-      const unusedMinutes = (endTime - now) / (1000 * 60);
-      walletCredit = parseFloat(((unusedMinutes / 60) * RATE_PER_HOUR).toFixed(2));
-    }
-
-    reservation.status = "completed";
-    await reservation.save();
-
-    await ParkingSpot.findByIdAndUpdate(reservation.spotId, {
-      isAvailable: true,
-      reservedBy: null,
-    });
-
-    if (walletCredit > 0) {
-      await User.findByIdAndUpdate(req.user.id, { $inc: { walletBalance: walletCredit } });
+    const result = await completeWithCredit(reservation);
+    if (!result) {
+      return res.status(400).json({ message: "Invalid reservation!" });
     }
 
     res.status(200).json({
       message: "Checked out successfully!",
-      walletCredit,
+      walletCredit: result.walletCredit,
     });
   } catch (error) {
     res.status(500).json({ message: "Internal Server Error", error: error.message });
