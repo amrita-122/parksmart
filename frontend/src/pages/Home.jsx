@@ -26,7 +26,7 @@ export const Home = () => {
       (err) => console.error("Location error", err),
       { enableHighAccuracy: true }
     );
-  }, []);
+  }, [token]);
 
   return (
     <div className="h-screen relative">

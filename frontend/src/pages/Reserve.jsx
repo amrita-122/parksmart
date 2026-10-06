@@ -23,7 +23,7 @@ export default function Reserve() {
       }
     };
     fetchSpots();
-  }, []);
+  }, [token]);
 
   const handleContinueToPayment = () => {
     if (!selectedSpot || !startTime || !endTime) {

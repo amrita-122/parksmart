@@ -467,6 +467,39 @@ describe("POST /api/parking/reserve", () => {
     );
   });
 
+  it("undoes the booking if a simultaneous request for another spot also got saved", async () => {
+    ParkingSpot.findOneAndUpdate = jest
+      .fn()
+      .mockResolvedValueOnce({ _id: "s1", isAvailable: false })
+      .mockResolvedValue(null);
+    Payment.findOneAndUpdate = jest.fn().mockResolvedValue({ _id: "p1" });
+    Payment.findByIdAndUpdate = jest.fn().mockResolvedValue(null);
+    Reservation.deleteOne = jest.fn().mockResolvedValue({});
+    Reservation.mockImplementation(() => ({
+      _id: "r1",
+      save: jest.fn().mockResolvedValue(undefined),
+    }));
+    // First call is the pre-check (no overlap), second is the post-save re-check (overlap).
+    Reservation.findOne = jest
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ _id: "other" });
+    const { startTime, endTime } = times();
+    const res = await request(app)
+      .post("/api/parking/reserve")
+      .set("Authorization", `Bearer ${makeToken()}`)
+      .send({ spotId: SPOT_ID, startTime, endTime });
+    expect(res.status).toBe(409);
+    expect(Reservation.findOne.mock.calls[1][0]).toMatchObject({ _id: { $ne: "r1" } });
+    expect(Reservation.deleteOne).toHaveBeenCalledWith({ _id: "r1" });
+    expect(Payment.findByIdAndUpdate).toHaveBeenCalledWith("p1", { reservationId: null });
+    expect(ParkingSpot.findOneAndUpdate).toHaveBeenLastCalledWith(
+      { _id: SPOT_ID, reservedBy: "user123" },
+      { isAvailable: true, reservedBy: null }
+    );
+    Reservation.findOne = jest.fn().mockResolvedValue(null);
+  });
+
   it("claims one unused payment per reservation", async () => {
     ParkingSpot.findOneAndUpdate = jest.fn().mockResolvedValue({ _id: "s1", isAvailable: false });
     Payment.findOneAndUpdate = jest.fn().mockResolvedValue({ _id: "p1" });

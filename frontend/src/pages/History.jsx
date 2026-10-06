@@ -26,7 +26,7 @@ export default function History() {
       }
     };
     fetchHistory();
-  }, []);
+  }, [token]);
 
   return (
     <div className="p-6">

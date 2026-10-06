@@ -20,7 +20,7 @@ export default function AdminDashboard() {
   const token = localStorage.getItem("token");
   const headers = { headers: { Authorization: `Bearer ${token}` } };
 
-  useEffect(() => { fetchAll(); }, []);
+  useEffect(() => { fetchAll(); }, []); // eslint-disable-line react-hooks/exhaustive-deps -- load once on mount
 
   const fetchAll = async () => {
     try {

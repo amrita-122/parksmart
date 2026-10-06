@@ -29,7 +29,7 @@ export default function SettingsPage() {
       }
     };
     fetchUserData();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- load once on mount
 
   const handleSave = async () => {
     try {

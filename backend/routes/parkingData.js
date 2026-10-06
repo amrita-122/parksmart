@@ -162,6 +162,17 @@ router.post("/reserve", authenticate, async (req, res) => {
       throw saveError;
     }
 
+    // The overlap check above is a read followed by writes, so two simultaneous requests
+    // from this user (for different spots) can both have passed it. Re-check now that this
+    // booking is saved: if another one overlaps, undo this one. If both requests see each
+    // other, both are undone and the user retries; a double booking can never survive.
+    if (await findOverlappingReservation(userId, start, end, reservation._id)) {
+      await Reservation.deleteOne({ _id: reservation._id });
+      await refund();
+      await releaseSpot();
+      return res.status(409).json({ message: "You already have a reservation that overlaps this time." });
+    }
+
     if (useWallet === true) {
       // Keep the wallet spend visible in payment history.
       try {

@@ -74,7 +74,7 @@ Server structure: `backend/server.js` creates the HTTP server, initialises socke
   - The spot exists and is available
   - `startTime` and `endTime` are valid dates and `endTime` is after `startTime`
   - `startTime` is not in the past (a 10-minute grace window covers the time spent paying) and is no more than 20 minutes from now
-  - The user has no other active (`reserved` or `checked-in`) reservation whose time range overlaps this one (409). `POST /api/payment/create-intent` runs the same check so the user is not charged for a booking that would be rejected. Back-to-back bookings are allowed. Two bookings can never share a spot, because the spot is claimed with one conditional write. Known race: two simultaneous requests from the same user for different spots can both pass, since the check is a read followed by a write.
+  - The user has no other active (`reserved` or `checked-in`) reservation whose time range overlaps this one (409). `POST /api/payment/create-intent` runs the same check so the user is not charged for a booking that would be rejected. Back-to-back bookings are allowed. Two bookings can never share a spot, because the spot is claimed with one conditional write. Because that check is a read followed by writes, it runs a second time after the reservation is saved; if a simultaneous request from the same user also got saved, the new booking is undone (reservation deleted, payment or wallet refunded, spot released) and answers 409.
   - The user has a completed payment that has not been used yet. Each payment covers exactly one reservation: the reservation claims it, so one payment cannot be reused for unlimited bookings.
 - A successful reservation marks the spot unavailable (`reservedBy` is set) and broadcasts a `spot:updated` socket event.
 - Reservation statuses: `reserved` → `checked-in` → `completed`, `reserved` → `cancelled`, or `reserved` → `violated` (set by the sensor, see IoT Sensor Bridge).
@@ -372,8 +372,8 @@ VITE_STRIPE_PUBLIC_KEY=
 ## Testing and CI
 
 - Backend: `cd backend && npm test` runs Jest with supertest over `backend/__tests__/` (health, auth and parking routes). The tests mock the Mongoose models, socket.io, the database config and Passport, so they do not exercise a real database.
-- Frontend: there are no tests yet; `npm run lint` and `npm run build` are the checks.
-- CI: `.github/workflows/ci.yml` runs on pushes and pull requests to `main`/`master` (Node 20): backend `npm ci` + `npm test`, then frontend `npm ci` + lint + build.
+- Frontend: `cd frontend && npm test` runs Vitest with Testing Library over `ProtectedRoute`, `PublicRoute` and the History page. Coverage is still thin (the other pages have no tests); `npm run lint` and `npm run build` are the other checks.
+- CI: `.github/workflows/ci.yml` runs on pushes and pull requests to `main`/`master` (Node 20): backend `npm ci` + `npm test`, then frontend `npm ci` + lint + test + build.
 
 ---
 

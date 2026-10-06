@@ -8,8 +8,8 @@ Plain-JavaScript parking app. No TypeScript, Docker, migrations, or AI/LLM code.
 
 ## Commands
 Backend (`backend/`): `npm start` (node server.js), `npm test` (jest --runInBand --forceExit), `node seed.js` (creates admin user), `node bridge.js` (Arduino bridge).
-Frontend (`frontend/`): `npm run dev | build | lint | preview`. There are no frontend tests.
-CI (`.github/workflows/ci.yml`, Node 20): backend `npm test`, frontend `npm run lint` + `npm run build`. Run the matching commands before finishing a change.
+Frontend (`frontend/`): `npm run dev | build | lint | test | preview` (`test` is Vitest).
+CI (`.github/workflows/ci.yml`, Node 20): backend `npm test`, frontend `npm run lint` + `npm test` + `npm run build`. Run the matching commands before finishing a change.
 
 ## Environment variables (no `.env.example`; `.env` files are gitignored, never print or commit them)
 Backend: `MongoDB_URL` (config/db.js; exact casing), `PORT`, `JWT_SECRET`, `CLIENT_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `REDIRECT_URI`, `REFRESH_TOKEN`, `GMAIL_USER`, `STRIPE_SECRET_KEY`, `DEVICE_API_KEY` (Arduino bridge shared secret), plus optional `JWT_EXPIRES_IN` (default 1d), `SEED_ADMIN_PASSWORD`, bridge-only `SERIAL_PORT`/`BAUD_RATE`/`SPOT_NUMBER`/`BRIDGE_API_URL`, `TRUST_PROXY` (proxy hop count) and `GOOGLE_CALLBACK_URL` (redirect-flow callback). The server exits at startup without `JWT_SECRET`.

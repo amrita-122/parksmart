@@ -32,7 +32,7 @@ export default function CheckInOut() {
     };
 
     fetchCurrentReservation();
-  }, []);
+  }, [token]);
 
   const handleCheckIn = async () => {
     try {

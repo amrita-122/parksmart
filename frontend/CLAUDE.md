@@ -3,7 +3,7 @@
 React 19 + Vite + Tailwind 3 (ES modules, JSX). Source is in `src/` (`pages/`, `components/`, `layouts/MainLayout.jsx`).
 
 ## Commands
-`npm run dev | build | lint | preview`. There are no tests, so run `npm run lint` and `npm run build` before finishing.
+`npm run dev | build | lint | test | preview`. Tests use Vitest + Testing Library (jsdom), live next to the code as `*.test.jsx`, and set up in `src/test/setup.js`. Run `npm run lint`, `npm test` and `npm run build` before finishing.
 ESLint 9 flat config (`eslint.config.js`): recommended + react-hooks + react-refresh. `no-unused-vars` is an **error**; names starting with a capital letter or underscore are ignored.
 
 ## API base URL
